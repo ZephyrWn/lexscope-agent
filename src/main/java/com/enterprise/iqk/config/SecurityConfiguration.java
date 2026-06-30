@@ -46,7 +46,7 @@ public class SecurityConfiguration {
         } else {
             http.authorizeHttpRequests(auth -> auth
                     .dispatcherTypeMatchers(DispatcherType.ASYNC).permitAll()
-                    .requestMatchers("/actuator/health", "/actuator/info", "/error").permitAll()
+                    .requestMatchers("/", "/actuator/health", "/actuator/info", "/error").permitAll()
                     .requestMatchers("/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()
                     .requestMatchers("/actuator/prometheus").hasAnyAuthority("PERM_METRICS_READ", "ROLE_ADMIN", "ROLE_OPS")
                     .requestMatchers(HttpMethod.GET, "/audit/logs").hasAnyAuthority("PERM_AUDIT_READ", "ROLE_ADMIN", "ROLE_OPS")

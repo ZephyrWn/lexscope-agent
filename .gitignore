@@ -41,6 +41,7 @@ reports/regression/latest.md
 evaluation/predictions.generated.json
 evaluation/predictions.live.json
 logs/*.log
+frontend/*.log
 coverage/
 tmp/
 .runtime/

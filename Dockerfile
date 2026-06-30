@@ -2,6 +2,7 @@ FROM maven:3.9.9-eclipse-temurin-17 AS builder
 WORKDIR /app
 
 COPY pom.xml .
+COPY .mvn ./.mvn
 COPY checkstyle.xml pmd-ruleset.xml spotbugs-exclude.xml owasp-suppressions.xml ./
 COPY src ./src
 

@@ -88,7 +88,8 @@ public class ApiKeyOrJwtAuthFilter extends OncePerRequestFilter {
     }
 
     private boolean isPublic(String uri) {
-        return uri.startsWith("/actuator/health")
+        return "/".equals(uri)
+                || uri.startsWith("/actuator/health")
                 || uri.startsWith("/actuator/info")
                 || uri.startsWith("/v3/api-docs")
                 || uri.startsWith("/swagger-ui")
