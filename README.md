@@ -81,6 +81,8 @@ powershell -ExecutionPolicy Bypass -File .\scripts\setup_windows.ps1
 powershell -ExecutionPolicy Bypass -File .\scripts\start_windows.ps1
 ```
 
+以后也可以直接双击项目根目录的 `start_lexscope_agent.bat` 启动。
+
 停止项目：
 
 ```powershell

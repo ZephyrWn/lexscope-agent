@@ -68,7 +68,7 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 Write-Host ""
-Write-Host "KnowledgeOps Agent URLs:" -ForegroundColor Green
+Write-Host "LexScope Agent URLs:" -ForegroundColor Green
 Write-Host "Frontend: http://localhost:8088/"
 Write-Host "Backend:  http://localhost:8080/"
 Write-Host "Swagger:  http://localhost:8080/swagger-ui/index.html"
