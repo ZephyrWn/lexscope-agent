@@ -246,23 +246,32 @@
           <el-button size="small" @click="clearConversation">清空会话</el-button>
         </div>
         <div v-else class="head-actions">
-          <el-button size="small" :loading="evalLoading" @click="loadEvalDatasets">刷新</el-button>
+          <el-button
+            size="small"
+            :loading="evalLoading"
+            :disabled="!canUseRemoteSync"
+            @click="loadEvalDatasets"
+            >刷新</el-button
+          >
           <el-button
             size="small"
             type="primary"
             :loading="evalRunning"
-            :disabled="!evalSelectedDatasetId"
+            :disabled="!canUseRemoteSync || !evalSelectedDatasetId"
             @click="runSelectedEvalDataset"
             >运行评测</el-button
           >
           <el-button
             size="small"
-            :disabled="!evalCurrentRun"
+            :disabled="!canUseRemoteSync || !evalCurrentRun"
             :loading="evalReportExporting"
             @click="downloadEvalReport"
             >导出报告</el-button
           >
-          <el-button size="small" :disabled="!evalCurrentRun" @click="markCurrentEvalRunBaseline"
+          <el-button
+            size="small"
+            :disabled="!canUseRemoteSync || !evalCurrentRun"
+            @click="markCurrentEvalRunBaseline"
             >设为 Baseline</el-button
           >
         </div>
@@ -289,7 +298,7 @@
               <p>支持案例事实梳理、争议焦点识别、法规检索、证据引用与研判轨迹。</p>
               <div class="welcome-prompts">
                 <button
-                  v-for="sample in quickPrompts"
+                  v-for="sample in welcomePrompts"
                   :key="sample"
                   type="button"
                   @click="prompt = sample"
@@ -526,7 +535,7 @@
             <div class="composer-footer">
               <div class="quick-prompts">
                 <button
-                  v-for="sample in quickPrompts"
+                  v-for="sample in actionPrompts"
                   :key="sample"
                   type="button"
                   @click="prompt = sample"
@@ -587,7 +596,7 @@
             <el-button
               type="primary"
               :loading="evalCreating"
-              :disabled="!evalDatasetName.trim() || !evalDatasetJson.trim()"
+              :disabled="!canUseRemoteSync || !evalDatasetName.trim() || !evalDatasetJson.trim()"
               @click="createEvalDatasetFromJson"
               >创建评测集</el-button
             >
@@ -1101,10 +1110,18 @@ const messageRowElements = new Map<string, HTMLElement>();
 let resizeObserver: ResizeObserver | null = null;
 let streamResetTimer: number | null = null;
 
-const quickPrompts = [
-  '先梳理本案事实，再提炼争议焦点和裁判规则',
-  '检索知识库，说明房屋租赁合同纠纷中的损失扩大规则',
-  '基于已上传案例，生成合同审查风险提示和引用依据',
+const welcomePrompts = [
+  '如何开始分析合同纠纷？',
+  '上传案例后可以问什么？',
+  '如何检索相关裁判规则？',
+];
+
+const actionPrompts = [
+  '梳理基本案事实',
+  '提炼争议焦点',
+  '检索类案规则',
+  '生成风险提示',
+  '生成引用依据',
 ];
 
 const sessionCount = computed(() => sessions.value.length);
@@ -1209,8 +1226,10 @@ const branchTreeItems = computed<BranchTreeItem[]>(() => {
 });
 
 const isEmptyConversation = computed(() => {
-  const nonSystem = messages.value.filter((item) => item.role === 'user');
-  return nonSystem.length === 0;
+  return !messages.value.some((item) => {
+    const content = item.content.trim();
+    return item.role === 'user' || (item.role === 'assistant' && content !== DEFAULT_SYSTEM_MESSAGE);
+  });
 });
 
 const messageMetrics = computed<MessageMetric[]>(() => {
@@ -1373,10 +1392,23 @@ function authContext() {
   };
 }
 
+function ensureEvaluationAuth(): boolean {
+  if (canUseRemoteSync.value) {
+    return true;
+  }
+  ElMessage.warning('请先在左侧输入 API Key 并点击“换取 JWT”，再使用检索评测。');
+  return false;
+}
+
 function activateView(view: ConsoleView): void {
   activeView.value = view;
   persistState();
-  if (view === 'evaluation' && evalDatasets.value.length === 0 && !evalLoading.value) {
+  if (
+    view === 'evaluation' &&
+    canUseRemoteSync.value &&
+    evalDatasets.value.length === 0 &&
+    !evalLoading.value
+  ) {
     void loadEvalDatasets();
   }
 }
@@ -1475,6 +1507,9 @@ function parseEvalDatasetJson(): EvalCaseCreate[] {
 }
 
 async function loadEvalDatasets(): Promise<void> {
+  if (!ensureEvaluationAuth()) {
+    return;
+  }
   evalLoading.value = true;
   try {
     evalDatasets.value = await listEvalDatasets(authContext());
@@ -1494,6 +1529,9 @@ async function loadEvalDatasets(): Promise<void> {
 }
 
 async function loadEvalComparison(datasetId: string): Promise<void> {
+  if (!ensureEvaluationAuth()) {
+    return;
+  }
   try {
     evalComparison.value = await getEvalComparison(datasetId, authContext());
   } catch (error) {
@@ -1510,6 +1548,9 @@ async function selectEvalDataset(datasetId: string): Promise<void> {
 }
 
 async function createEvalDatasetFromJson(): Promise<void> {
+  if (!ensureEvaluationAuth()) {
+    return;
+  }
   evalCreating.value = true;
   try {
     const created = await createEvalDataset(
@@ -1534,6 +1575,9 @@ async function createEvalDatasetFromJson(): Promise<void> {
 }
 
 async function runSelectedEvalDataset(): Promise<void> {
+  if (!ensureEvaluationAuth()) {
+    return;
+  }
   if (!evalSelectedDatasetId.value) {
     return;
   }
@@ -1570,6 +1614,9 @@ async function runSelectedEvalDataset(): Promise<void> {
 }
 
 async function markCurrentEvalRunBaseline(): Promise<void> {
+  if (!ensureEvaluationAuth()) {
+    return;
+  }
   const run = evalCurrentRun.value;
   if (!run) {
     return;
@@ -1585,6 +1632,9 @@ async function markCurrentEvalRunBaseline(): Promise<void> {
 }
 
 async function downloadEvalReport(): Promise<void> {
+  if (!ensureEvaluationAuth()) {
+    return;
+  }
   const run = evalCurrentRun.value;
   if (!run) {
     return;
@@ -2475,8 +2525,13 @@ watch([apiKeyInput, tenantInput, token, refreshToken], () => {
   persistState();
   if (canUseRemoteSync.value) {
     void refreshCostSummary();
+    if (activeView.value === 'evaluation' && evalDatasets.value.length === 0 && !evalLoading.value) {
+      void loadEvalDatasets();
+    }
   } else {
     costSummary.value = null;
+    evalDatasets.value = [];
+    evalComparison.value = null;
   }
 });
 
@@ -2523,7 +2578,7 @@ onMounted(() => {
     void refreshCostSummary();
   }
 
-  if (activeView.value === 'evaluation') {
+  if (activeView.value === 'evaluation' && canUseRemoteSync.value) {
     void loadEvalDatasets();
   }
 
