@@ -9,18 +9,66 @@
         </p>
       </div>
 
-      <div class="session-search-block">
-        <el-input
-          v-model="sessionSearch"
-          size="small"
-          placeholder="搜索记录标题或 id"
-          clearable
-        />
-      </div>
-
       <button class="new-chat-btn" type="button" @click="createAndSwitchSession">+ 新建问答</button>
 
+      <div class="console-nav" role="tablist" aria-label="主要功能">
+        <button
+          type="button"
+          :class="{ active: activeView === 'chat' }"
+          @click="activateView('chat')"
+        >
+          智能问答
+        </button>
+        <button type="button" @click="prepareUploadPrompt">上传资料</button>
+        <button type="button" @click="scrollToRecords">我的记录</button>
+        <button type="button" @click="prepareReportPrompt">生成报告</button>
+      </div>
+
       <section class="session-panel">
+        <div class="session-tools compact">
+          <el-input
+            v-model="sessionSearch"
+            size="small"
+            placeholder="搜索记录标题或 ID"
+            clearable
+          />
+          <div class="tool-row">
+            <el-select v-model="workspaceFilter" size="small" class="tool-select">
+              <el-option label="全部分组" value="all" />
+              <el-option
+                v-for="workspace in workspaceOptions"
+                :key="workspace"
+                :label="workspaceLabel(workspace)"
+                :value="workspace"
+              />
+            </el-select>
+            <el-switch
+              v-model="showArchivedSessions"
+              size="small"
+              inline-prompt
+              active-text="含归档"
+              inactive-text="隐藏归档"
+            />
+          </div>
+          <div class="cloud-row">
+            <el-button
+              size="small"
+              :loading="cloudSyncing"
+              :disabled="!canUseRemoteSync"
+              @click="loadSessionsFromCloud"
+              >从云端读取</el-button
+            >
+            <el-button
+              size="small"
+              type="primary"
+              :loading="cloudSyncing"
+              :disabled="!canUseRemoteSync"
+              @click="syncActiveSessionToCloud"
+              >保存到云端</el-button
+            >
+          </div>
+        </div>
+
         <div class="section-head">
           <p class="section-label">我的记录</p>
           <span class="section-meta">{{ filteredSessions.length }}/{{ sessionCount }}</span>
@@ -47,7 +95,8 @@
                 >
               </div>
               <p class="session-meta-row">
-                {{ formatSessionTime(session.updatedAt) }}
+                {{ workspaceLabel(session.workspaceId) }} · {{ formatTime(session.updatedAt) }} ·
+                {{ shortId(session.id) }}
               </p>
             </div>
             <div class="session-actions">
@@ -66,18 +115,57 @@
         </div>
       </section>
 
-      <div class="sidebar-footer">
-        <button class="settings-link" type="button" @click="settingsVisible = true">
-          设置
-        </button>
-      </div>
+      <section class="branch-panel">
+        <div class="section-head">
+          <p class="section-label">历史版本</p>
+          <div class="branch-head-actions">
+            <span class="section-meta">{{ activeSession?.branches.length ?? 0 }} 个</span>
+            <button type="button" @click="forkFromCurrent">另存为新版本</button>
+            <button
+              type="button"
+              :disabled="!activeBranch?.parentBranchId"
+              @click="compareWithParent"
+            >
+              对比上一版
+            </button>
+            <button
+              type="button"
+              :disabled="!activeBranch?.parentBranchId"
+              @click="mergeIntoParent"
+            >
+              采用当前版本
+            </button>
+          </div>
+        </div>
+
+        <div class="branch-list">
+          <div
+            v-for="node in branchTreeItems"
+            :key="node.branch.id"
+            class="branch-item"
+            :class="{ active: node.branch.id === activeBranch?.id }"
+            :style="{ paddingLeft: `${12 + node.depth * 14}px` }"
+            role="button"
+            tabindex="0"
+            @click="switchBranch(node.branch.id)"
+            @keydown.enter.prevent="switchBranch(node.branch.id)"
+          >
+            <span class="branch-line" :style="{ opacity: node.depth > 0 ? 1 : 0 }"></span>
+            <div class="branch-content">
+              <p>{{ node.branch.title }}</p>
+              <small>{{ formatTime(node.branch.updatedAt) }}</small>
+            </div>
+          </div>
+          <div v-if="branchTreeItems.length === 0" class="session-empty">暂无历史版本</div>
+        </div>
+      </section>
     </aside>
 
     <main class="workspace">
       <header class="workspace-head">
         <div v-if="activeView === 'chat'">
           <p class="workspace-kicker">智能问答</p>
-          <h2>{{ activeSession?.title || '新对话' }}</h2>
+          <h2>{{ activeSession?.title || '新会话' }}</h2>
           <p class="workspace-sub">可继续提问、补充资料，或整理成法律分析报告。</p>
         </div>
         <div v-else>
@@ -86,7 +174,26 @@
           <p class="workspace-sub">用于测试检索命中、引用覆盖和回答可靠性，普通使用无需打开。</p>
         </div>
         <div v-if="activeView === 'chat'" class="head-actions">
+          <el-select v-model="activeWorkspaceId" size="small" class="workspace-select">
+            <el-option
+              v-for="workspace in workspaceOptions"
+              :key="workspace"
+              :label="workspaceLabel(workspace)"
+              :value="workspace"
+            />
+          </el-select>
+          <el-input
+            v-model="workspaceDraft"
+            size="small"
+            class="workspace-input"
+            placeholder="新分组"
+            @keydown.enter.prevent="createWorkspace"
+          />
+          <el-button size="small" @click="createWorkspace">创建并切换</el-button>
           <el-switch v-model="darkMode" inline-prompt active-text="深色" inactive-text="浅色" />
+          <el-tag :type="streamStatusTagType" effect="plain">{{ streamStatusLabel }}</el-tag>
+          <el-button size="small" @click="clearConversation">清空会话</el-button>
+          <el-button size="small" @click="settingsVisible = true">设置</el-button>
         </div>
         <div v-else class="head-actions">
           <el-button
@@ -125,166 +232,80 @@
       <el-drawer v-model="settingsVisible" title="设置" size="380px">
         <div class="settings-drawer">
           <section class="settings-card">
-            <p class="section-label">基础设置</p>
+            <p class="section-label">服务设置</p>
             <el-form label-position="top" size="small">
-              <el-form-item label="模型 API Key">
+              <el-form-item label="服务密钥">
                 <el-input
                   v-model="apiKeyInput"
-                  placeholder="已默认使用本地模型 API Key"
+                  placeholder="已默认使用本地服务密钥"
                   show-password
                   type="password"
+                />
+              </el-form-item>
+              <el-form-item label="使用范围（可选）">
+                <el-input v-model="tenantInput" placeholder="public" />
+              </el-form-item>
+              <el-form-item label="回答质量">
+                <el-segmented
+                  v-model="modelProfile"
+                  :options="modelProfileOptions"
+                  class="full-width"
+                />
+              </el-form-item>
+              <el-form-item label="实时输出">
+                <el-switch
+                  v-model="streaming"
+                  inline-prompt
+                  active-text="开启"
+                  inactive-text="关闭"
                 />
               </el-form-item>
             </el-form>
             <div class="auth-buttons">
               <el-button type="primary" :loading="authLoading" @click="handleLogin"
-                >保存设置</el-button
+                >保存并连接</el-button
               >
-              <el-button @click="clearAuth">恢复默认</el-button>
+              <el-button :disabled="!refreshToken" :loading="refreshing" @click="handleRefresh"
+                >刷新连接</el-button
+              >
+              <el-button @click="clearAuth">清空</el-button>
             </div>
           </section>
 
           <details class="ops-panel">
-            <summary><span>数据管理</span></summary>
+            <summary><span>开发者工具</span></summary>
             <div class="ops-body">
               <div class="developer-tools">
-                <div class="developer-button-pair">
-                  <el-button
-                    size="small"
-                    :loading="cloudSyncing"
-                    :disabled="!canUseRemoteSync"
-                    @click="loadSessionsFromCloud"
-                    >从云端读取</el-button
-                  >
-                  <el-button
-                    size="small"
-                    type="primary"
-                    :loading="cloudSyncing"
-                    :disabled="!canUseRemoteSync"
-                    @click="syncActiveSessionToCloud"
-                    >保存至云端</el-button
-                  >
-                </div>
-              </div>
-            </div>
-          </details>
-
-          <details class="ops-panel">
-            <summary><span>高级设置</span></summary>
-            <div class="ops-body">
-              <div class="developer-tools">
-                <label class="developer-field">
-                  <span>使用范围</span>
-                  <el-input
-                    v-model="tenantInput"
-                    size="small"
-                    class="developer-control"
-                    placeholder="public"
+                <el-button size="small" @click="openDeveloperEvaluation">打开效果评测</el-button>
+                <el-select v-model="activeWorkspaceId" size="small" class="workspace-select">
+                  <el-option
+                    v-for="workspace in workspaceOptions"
+                    :key="workspace"
+                    :label="workspace"
+                    :value="workspace"
                   />
-                </label>
-                <label class="developer-field">
-                  <span>当前分组</span>
-                  <el-select v-model="activeWorkspaceId" size="small" class="developer-control">
-                    <el-option
-                      v-for="workspace in workspaceOptions"
-                      :key="workspace"
-                      :label="workspaceLabel(workspace)"
-                      :value="workspace"
-                    />
-                  </el-select>
-                </label>
-                <label class="developer-field">
-                  <span>新分组</span>
-                  <el-input
-                    v-model="workspaceDraft"
-                    size="small"
-                    class="developer-control"
-                    placeholder="输入新分组名称"
-                    @keydown.enter.prevent="createWorkspace"
-                  />
-                </label>
-                <el-button class="developer-full-button" size="small" @click="createWorkspace"
-                  >创建并切换</el-button
-                >
-                <label class="developer-field">
-                  <span>记录筛选</span>
-                  <el-select v-model="workspaceFilter" size="small" class="developer-control">
-                    <el-option label="全部分组" value="all" />
-                    <el-option
-                      v-for="workspace in workspaceOptions"
-                      :key="workspace"
-                      :label="workspaceLabel(workspace)"
-                      :value="workspace"
-                    />
-                  </el-select>
-                </label>
-                <div class="developer-field developer-switch-row">
-                  <span>归档记录</span>
-                  <el-switch
-                    v-model="showArchivedSessions"
-                    size="small"
-                    inline-prompt
-                    active-text="显示"
-                    inactive-text="隐藏"
-                  />
-                </div>
-                <div class="history-settings">
-                  <div class="branch-panel-head">
-                    <p class="branch-panel-title">
-                      历史版本
-                      <span>{{ activeSession?.branches.length ?? 0 }} 个</span>
-                    </p>
-                    <div class="branch-head-actions">
-                      <button type="button" @click="forkFromCurrent">另存为新版本</button>
-                      <button
-                        type="button"
-                        :disabled="!activeBranch?.parentBranchId"
-                        @click="compareWithParent"
-                      >
-                        对比上一版
-                      </button>
-                      <button
-                        type="button"
-                        :disabled="!activeBranch?.parentBranchId"
-                        @click="mergeIntoParent"
-                      >
-                        采用当前版本
-                      </button>
-                    </div>
-                  </div>
-
-                  <div class="branch-list">
-                    <div
-                      v-for="node in branchTreeItems"
-                      :key="node.branch.id"
-                      class="branch-item"
-                      :class="{ active: node.branch.id === activeBranch?.id }"
-                      :style="{ paddingLeft: `${12 + node.depth * 14}px` }"
-                      role="button"
-                      tabindex="0"
-                      @click="switchBranch(node.branch.id)"
-                      @keydown.enter.prevent="switchBranch(node.branch.id)"
-                    >
-                      <span
-                        class="branch-line"
-                        :style="{ opacity: node.depth > 0 ? 1 : 0 }"
-                      ></span>
-                      <div class="branch-content">
-                        <p>{{ node.branch.title }}</p>
-                        <small>{{ formatTime(node.branch.updatedAt) }}</small>
-                      </div>
-                    </div>
-                    <div v-if="branchTreeItems.length === 0" class="session-empty">
-                      暂无历史版本
-                    </div>
-                  </div>
-                </div>
-                <el-button
-                  class="developer-full-button"
+                </el-select>
+                <el-input
+                  v-model="workspaceDraft"
                   size="small"
-                  @click="openDeveloperEvaluation"
-                  >打开效果评测</el-button
-                >
+                  class="workspace-input"
+                  placeholder="新分组"
+                  @keydown.enter.prevent="createWorkspace"
+                />
+                <el-button size="small" @click="createWorkspace">创建并切换</el-button>
+                <el-switch
+                  v-model="darkMode"
+                  inline-prompt
+                  active-text="深色"
+                  inactive-text="浅色"
+                />
+                <el-switch
+                  v-model="showArchivedSessions"
+                  size="small"
+                  inline-prompt
+                  active-text="含归档"
+                  inactive-text="隐藏归档"
+                />
                 <span v-if="costSummary" class="stream-detail"
                   >本月用量 ${{ costSummary.monthCostUsd.toFixed(4) }} / 预算 ${{
                     costSummary.monthlyBudgetUsd.toFixed(4)
@@ -293,14 +314,6 @@
               </div>
             </div>
           </details>
-
-          <section class="settings-card">
-            <p class="section-label">关于系统 / 使用说明</p>
-            <div class="settings-help">
-              <p>法律智能问答用于根据你提供的法律资料生成有依据的初步分析。</p>
-              <p>一般使用时，直接新建问答、输入问题并查看引用来源即可。</p>
-            </div>
-          </section>
         </div>
       </el-drawer>
 
@@ -322,28 +335,22 @@
           <template v-else>
             <div v-if="isEmptyConversation" class="welcome-block">
               <h3>开始法律智能问答</h3>
-              <p>上传合同、判决书或法规材料，直接提问即可获得分析。</p>
-              <div class="welcome-core">
-                <button
-                  class="welcome-upload-button"
-                  type="button"
-                  :disabled="uploadingLegalFile"
-                  @click="openWelcomeFilePicker"
-                >
-                  {{ uploadingLegalFile ? '上传中...' : '上传法律资料' }}
-                </button>
-                <input
-                  ref="welcomeFileInput"
-                  class="welcome-file-input"
-                  type="file"
-                  accept=".pdf,.txt,.doc,.docx,application/pdf,text/plain"
-                  @change="handleWelcomeFileSelected"
-                />
-                <small>支持 PDF / Word / TXT</small>
-                <span>或者直接输入问题开始</span>
+              <p>按三个步骤获得基于资料的法律分析，适合合同、判决书和法规材料阅读。</p>
+              <div class="welcome-steps" aria-label="使用步骤">
+                <div>
+                  <span>1</span>
+                  <strong>上传法律资料</strong>
+                </div>
+                <div>
+                  <span>2</span>
+                  <strong>输入你的问题</strong>
+                </div>
+                <div>
+                  <span>3</span>
+                  <strong>生成法律分析或报告</strong>
+                </div>
               </div>
               <div class="welcome-prompts">
-                <p>你可以试试：</p>
                 <button
                   v-for="sample in welcomePrompts"
                   :key="sample"
@@ -365,9 +372,10 @@
               class="message-row"
               :class="[entry.item.role, entry.item.state || 'done']"
             >
+              <div class="avatar">{{ entry.item.role === 'user' ? 'U' : 'AI' }}</div>
               <div class="bubble-wrap">
                 <div class="bubble-meta">
-                  <span>{{ entry.item.role === 'user' ? '我' : '法律助手' }}</span>
+                  <span>{{ entry.item.role === 'user' ? 'You' : 'Assistant' }}</span>
                   <span>{{ formatTime(entry.item.createdAt) }}</span>
                   <span v-if="entry.item.state === 'streaming'" class="status-dot">生成中</span>
                   <span v-if="entry.item.state === 'pending'" class="status-dot">思考中</span>
@@ -384,13 +392,10 @@
                       <div></div>
                     </div>
                     <div v-else>
-                      <template v-if="shouldShowAnswerScaffold(entry.item)">
-                        <p class="answer-module-label">推荐分析方向</p>
-                        <div class="answer-module-panel">
-                          <span v-for="module in answerModules" :key="module">{{ module }}</span>
-                        </div>
-                        <p class="answer-section-title">初步分析</p>
-                      </template>
+                      <div class="answer-module-panel">
+                        <span v-for="module in answerModules" :key="module">{{ module }}</span>
+                      </div>
+                      <p class="answer-section-title">初步分析</p>
                       <!-- eslint-disable-next-line vue/no-v-html -->
                       <div class="markdown" v-html="renderMarkdown(entry.item.content)"></div>
                       <div v-if="entry.item.citations?.length" class="citation-panel">
@@ -588,32 +593,15 @@
               @keydown.enter.exact.prevent="send"
             />
             <div class="composer-footer">
-              <div class="composer-left">
-                <div class="composer-controls">
-                  <el-select
-                    v-model="modelProfile"
-                    size="small"
-                    class="composer-quality-select"
-                    placement="top"
-                    aria-label="回答质量"
-                  >
-                    <el-option
-                      v-for="option in modelProfileOptions"
-                      :key="option.value"
-                      :label="option.label"
-                      :value="option.value"
-                    />
-                  </el-select>
-                  <button
-                    type="button"
-                    class="composer-toggle"
-                    :class="{ active: streaming }"
-                    @click="streaming = !streaming"
-                  >
-                    <span aria-hidden="true"></span>
-                    {{ streaming ? '实时输出' : '单次输出' }}
-                  </button>
-                </div>
+              <div class="quick-prompts">
+                <button
+                  v-for="sample in actionPrompts"
+                  :key="sample"
+                  type="button"
+                  @click="prompt = sample"
+                >
+                  {{ sample }}
+                </button>
               </div>
               <div class="composer-actions">
                 <el-button :disabled="!sending" @click="stopGenerating">停止</el-button>
@@ -741,6 +729,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import {
   compareSessionBranches,
   createEvalDataset,
+  exchangeApiKey,
   exportEvalRunReport,
   getEvalComparison,
   getTenantCostSummary,
@@ -749,13 +738,13 @@ import {
   listSessionStates,
   mergeSessionBranches,
   reactChat,
+  refreshJwt,
   saveSessionState,
   setSessionArchived,
   setSessionPinned,
   streamReactChat,
   submitAnswerFeedback,
   triggerEvalRun,
-  uploadLegalFile,
 } from './api/client';
 import type {
   EvalCaseCreate,
@@ -829,7 +818,8 @@ interface EvalMetricCard {
 
 const STORAGE_KEY = 'lexscope-agent-react-console-v1';
 const LEGACY_STORAGE_KEY = 'knowledgeops-agent-react-console';
-const DEFAULT_SYSTEM_MESSAGE = '请上传法律资料，或直接输入你想分析的问题。';
+const DEFAULT_SYSTEM_MESSAGE =
+  '欢迎使用法律智能问答。你可以上传或粘贴法律资料并输入问题，我会基于资料内容生成有依据的法律分析。';
 const DEFAULT_WORKSPACE = 'default';
 const DEFAULT_SERVICE_KEY = 'dev-admin-key-2026';
 const ESTIMATED_ROW_HEIGHT = 156;
@@ -985,7 +975,7 @@ function normalizeMessage(raw: unknown): ChatMessage {
 function deriveTitle(text: string): string {
   const clean = text.trim().replace(/\s+/g, ' ');
   if (!clean) {
-    return '新对话';
+    return '新会话';
   }
   return clean.length > 28 ? `${clean.slice(0, 28)}...` : clean;
 }
@@ -1050,7 +1040,7 @@ function normalizeSession(raw: unknown): SessionRecord {
 
   return {
     id: typeof candidate.id === 'string' ? candidate.id : createChatId(),
-    title: typeof candidate.title === 'string' ? candidate.title : '新对话',
+    title: typeof candidate.title === 'string' ? candidate.title : '新会话',
     updatedAt: typeof candidate.updatedAt === 'number' ? candidate.updatedAt : Date.now(),
     modelProfile: typeof candidate.modelProfile === 'string' ? candidate.modelProfile : 'balanced',
     streaming: Boolean(candidate.streaming ?? true),
@@ -1069,7 +1059,7 @@ function createSession(): SessionRecord {
 
   return {
     id,
-    title: '新对话',
+    title: '新会话',
     updatedAt: Date.now(),
     modelProfile: 'balanced',
     streaming: true,
@@ -1086,28 +1076,6 @@ function formatTime(value: number): string {
     hour: '2-digit',
     minute: '2-digit',
   });
-}
-
-function formatSessionTime(value: number): string {
-  const date = new Date(value);
-  const now = new Date();
-  const time = date.toLocaleTimeString('zh-CN', {
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-  const sameDay =
-    date.getFullYear() === now.getFullYear() &&
-    date.getMonth() === now.getMonth() &&
-    date.getDate() === now.getDate();
-
-  if (sameDay) {
-    return `今天 ${time}`;
-  }
-
-  return `${date.toLocaleDateString('zh-CN', {
-    month: '2-digit',
-    day: '2-digit',
-  })} ${time}`;
 }
 
 function shortId(id: string): string {
@@ -1131,15 +1099,11 @@ function renderMarkdown(content: string): string {
 const cached = safeParse(localStorage.getItem(STORAGE_KEY));
 const legacy = safeParse(localStorage.getItem(LEGACY_STORAGE_KEY));
 const bootstrap = Object.keys(cached).length > 0 ? cached : legacy;
-const initialApiKey =
-  typeof bootstrap.apiKey === 'string' && bootstrap.apiKey.trim()
-    ? bootstrap.apiKey
-    : DEFAULT_SERVICE_KEY;
 
 const darkMode = ref(Boolean(bootstrap.darkMode));
 const activeView = ref<ConsoleView>('chat');
 const settingsVisible = ref(false);
-const apiKeyInput = ref(initialApiKey);
+const apiKeyInput = ref((bootstrap.apiKey as string | undefined) ?? DEFAULT_SERVICE_KEY);
 const tenantInput = ref((bootstrap.tenantId as string | undefined) ?? 'public');
 const token = ref((bootstrap.token as string | undefined) ?? '');
 const refreshToken = ref((bootstrap.refreshToken as string | undefined) ?? '');
@@ -1181,12 +1145,12 @@ const traceDurationMs = computed(() => {
 });
 
 const authLoading = ref(false);
+const refreshing = ref(false);
 const sending = ref(false);
 const isStreamingResponse = ref(false);
 const hydrating = ref(true);
 const prompt = ref('');
 const messageContainer = ref<HTMLElement | null>(null);
-const welcomeFileInput = ref<HTMLInputElement | null>(null);
 const currentAbortController = ref<AbortController | null>(null);
 const workspaceDraft = ref('');
 const editingMessageId = ref<string | null>(null);
@@ -1204,7 +1168,6 @@ const evalLoading = ref(false);
 const evalCreating = ref(false);
 const evalRunning = ref(false);
 const evalReportExporting = ref(false);
-const uploadingLegalFile = ref(false);
 const evalDatasetName = ref('LexScope 法律知识库评测集');
 const evalDatasetDescription = ref('检索命中、引用覆盖与回答可靠性检查集');
 const evalDatasetJson = ref(JSON.stringify(DEFAULT_EVAL_DATASET, null, 2));
@@ -1217,9 +1180,17 @@ let resizeObserver: ResizeObserver | null = null;
 let streamResetTimer: number | null = null;
 
 const welcomePrompts = [
-  '这份合同有哪些风险？',
-  '帮我提取争议焦点',
-  '生成法律分析报告',
+  '这份合同有哪些主要风险？',
+  '帮我概括这段材料中的法律问题',
+  '请找出可以引用的依据',
+  '生成一份法律分析报告',
+];
+
+const actionPrompts = [
+  '生成一份法律分析报告',
+  '概括问题和争议焦点',
+  '整理相关依据和引用来源',
+  '提示可能存在的法律风险',
 ];
 
 const answerModules = [
@@ -1234,8 +1205,7 @@ const answerModules = [
 
 const sessionCount = computed(() => sessions.value.length);
 
-const effectiveApiKey = computed(() => apiKeyInput.value.trim() || DEFAULT_SERVICE_KEY);
-const canUseRemoteSync = computed(() => Boolean(effectiveApiKey.value || token.value));
+const canUseRemoteSync = computed(() => Boolean(token.value || apiKeyInput.value.trim()));
 
 const selectedEvalDataset = computed(() =>
   evalDatasets.value.find((dataset) => dataset.datasetId === evalSelectedDatasetId.value),
@@ -1275,7 +1245,12 @@ const activeWorkspaceId = computed({
 });
 
 const orderedSessions = computed(() =>
-  [...sessions.value].sort((a, b) => b.updatedAt - a.updatedAt),
+  [...sessions.value].sort((a, b) => {
+    if (a.pinned !== b.pinned) {
+      return Number(b.pinned) - Number(a.pinned);
+    }
+    return b.updatedAt - a.updatedAt;
+  }),
 );
 
 const filteredSessions = computed(() => {
@@ -1337,18 +1312,6 @@ const isEmptyConversation = computed(() => {
     );
   });
 });
-
-function shouldShowAnswerScaffold(message: ChatMessage): boolean {
-  const content = message.content.trim();
-  return (
-    message.role === 'assistant' &&
-    Boolean(content) &&
-    content !== DEFAULT_SYSTEM_MESSAGE &&
-    !content.startsWith('已收到《') &&
-    !content.startsWith('当前未完成登录或模型配置') &&
-    content !== '输出已手动停止。'
-  );
-}
 
 const messageMetrics = computed<MessageMetric[]>(() => {
   let offset = 0;
@@ -1503,11 +1466,10 @@ function persistState(): void {
 }
 
 function authContext() {
-  const apiKey = effectiveApiKey.value;
   return {
-    token: apiKey ? undefined : token.value || undefined,
-    apiKey,
-    tenantId: tenantInput.value.trim() || 'public',
+    token: token.value || undefined,
+    apiKey: apiKeyInput.value || undefined,
+    tenantId: tenantInput.value || undefined,
   };
 }
 
@@ -1540,59 +1502,6 @@ function openDeveloperEvaluation(): void {
 function prepareUploadPrompt(): void {
   prompt.value =
     '请将法律资料粘贴在这里，并在资料后写下你的问题。示例：请基于以下合同条款，分析主要风险并给出依据。';
-}
-
-function openWelcomeFilePicker(): void {
-  welcomeFileInput.value?.click();
-}
-
-async function handleWelcomeFileSelected(event: Event): Promise<void> {
-  const input = event.target as HTMLInputElement;
-  const file = input.files?.[0];
-  input.value = '';
-  if (!file || uploadingLegalFile.value) {
-    return;
-  }
-
-  const fileName = file.name || '法律资料';
-  const lowerName = fileName.toLowerCase();
-  if (lowerName.endsWith('.txt')) {
-    const text = (await file.text()).trim();
-    prompt.value = text
-      ? `请基于以下法律资料，分析主要问题并给出依据：\n\n${text.slice(0, 12000)}`
-      : '请基于我上传的法律资料，分析主要问题并给出依据。';
-    ElMessage.success('已读取 TXT 内容，可以直接提问');
-    return;
-  }
-
-  if (lowerName.endsWith('.doc') || lowerName.endsWith('.docx')) {
-    ElMessage.warning('当前请先将 Word 另存为 PDF，或复制正文后直接提问。');
-    return;
-  }
-
-  if (!lowerName.endsWith('.pdf')) {
-    ElMessage.warning('请上传 PDF、Word 或 TXT 格式的法律资料。');
-    return;
-  }
-
-  uploadingLegalFile.value = true;
-  try {
-    await uploadLegalFile(chatId.value, file, authContext());
-    const hint = `已收到《${fileName}》。你可以直接输入想分析的问题。`;
-    if (messages.value.length === 1 && messages.value[0].content === DEFAULT_SYSTEM_MESSAGE) {
-      messages.value[0].content = hint;
-    } else {
-      messages.value.push(createMessage('assistant', hint));
-    }
-    syncCurrentSessionBranch();
-    persistState();
-    await scrollToBottom(true);
-    ElMessage.success('资料已上传，可以开始提问');
-  } catch (error) {
-    showFriendlyError(error, '资料上传失败');
-  } finally {
-    uploadingLegalFile.value = false;
-  }
 }
 
 function prepareReportPrompt(): void {
@@ -2449,29 +2358,61 @@ function clearConversation(): void {
 }
 
 async function handleLogin(): Promise<void> {
+  if (!apiKeyInput.value.trim()) {
+    ElMessage.warning('请先输入服务密钥');
+    return;
+  }
+
   authLoading.value = true;
   try {
-    apiKeyInput.value = effectiveApiKey.value;
-    tenantInput.value = tenantInput.value.trim() || 'public';
-    token.value = '';
-    refreshToken.value = '';
+    const auth = await exchangeApiKey(
+      apiKeyInput.value.trim(),
+      tenantInput.value.trim() || undefined,
+    );
+    token.value = auth.token ?? '';
+    refreshToken.value = auth.refreshToken ?? '';
+    if (auth.tenantId) {
+      tenantInput.value = auth.tenantId;
+    }
+    ElMessage.success('服务已连接');
     persistState();
-    await refreshCostSummary();
-    ElMessage.success('设置已保存');
+    await loadSessionsFromCloud();
   } catch (error) {
-    showFriendlyError(error, '设置保存失败');
+    showFriendlyError(error, '服务连接失败');
   } finally {
     authLoading.value = false;
   }
 }
 
+async function handleRefresh(): Promise<void> {
+  if (!refreshToken.value) {
+    ElMessage.warning('当前没有可刷新的连接');
+    return;
+  }
+
+  refreshing.value = true;
+  try {
+    const auth = await refreshJwt(refreshToken.value);
+    token.value = auth.token ?? token.value;
+    refreshToken.value = auth.refreshToken ?? refreshToken.value;
+    if (auth.tenantId) {
+      tenantInput.value = auth.tenantId;
+    }
+    ElMessage.success('连接已刷新');
+    persistState();
+    await refreshCostSummary();
+  } catch (error) {
+    showFriendlyError(error, '连接刷新失败');
+  } finally {
+    refreshing.value = false;
+  }
+}
+
 function clearAuth(): void {
-  apiKeyInput.value = DEFAULT_SERVICE_KEY;
-  tenantInput.value = 'public';
   token.value = '';
   refreshToken.value = '';
   costSummary.value = null;
-  ElMessage.success('已恢复默认服务配置');
+  ElMessage.success('服务配置已清空');
   persistState();
 }
 
@@ -2784,35 +2725,35 @@ onBeforeUnmount(() => {
   grid-template-columns: 340px minmax(0, 1fr);
   color: var(--ui-text);
   background: var(--ui-bg);
-  font-family: var(--ui-serif);
 }
 
 .sidebar {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  padding: 14px;
+  padding: 16px;
   border-right: 1px solid var(--ui-border);
   background: var(--ui-card);
 }
 
 .brand-block {
-  padding: 6px 2px 8px;
+  padding: 4px 2px 4px 12px;
+  border-left: 3px solid var(--ui-accent);
 }
 
 .eyebrow {
   margin: 0;
-  font-size: 12px;
-  letter-spacing: 0.02em;
+  font-size: 11px;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--ui-muted);
 }
 
 h1 {
-  margin: 6px 0 0;
-  font-size: 24px;
-  line-height: 1.18;
-  font-weight: 650;
+  margin: 8px 0 0;
+  font-size: 25px;
+  line-height: 1.1;
+  font-weight: 500;
   letter-spacing: 0;
   color: var(--ui-text);
 }
@@ -2820,18 +2761,18 @@ h1 {
 .brand-sub {
   margin: 8px 0 0;
   font-size: 13px;
-  line-height: 1.5;
+  line-height: 1.55;
   color: var(--ui-muted);
 }
 
 .new-chat-btn {
   border: 1px solid var(--ui-accent);
   background: var(--ui-accent);
-  color: #ffffff;
+  color: var(--ui-card);
   border-radius: 8px;
   padding: 10px 14px;
   font-size: 14px;
-  font-weight: 600;
+  font-weight: 500;
   cursor: pointer;
   transition:
     transform 180ms ease,
@@ -2840,30 +2781,7 @@ h1 {
 
 .new-chat-btn:hover {
   transform: translateY(-1px);
-  box-shadow: 0 8px 20px #d8d8d2;
-}
-
-.sidebar-footer {
-  margin-top: auto;
-  padding-top: 4px;
-}
-
-.settings-link {
-  width: 100%;
-  border: 1px solid var(--ui-border);
-  border-radius: 8px;
-  padding: 9px 12px;
-  background: var(--ui-panel);
-  color: var(--ui-text);
-  font-size: 13px;
-  font-weight: 650;
-  cursor: pointer;
-  text-align: center;
-}
-
-.settings-link:hover {
-  border-color: var(--ui-accent);
-  color: var(--ui-accent);
+  box-shadow: 0 8px 22px #dad8cf;
 }
 
 .sidebar-section,
@@ -2900,31 +2818,58 @@ h1 {
   gap: 8px;
 }
 
-.session-search-block {
-  min-width: 0;
-}
-
-.session-search-block :deep(.el-input__wrapper) {
-  min-height: 42px;
+.console-nav {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  padding: 4px;
+  border: 1px solid var(--ui-border);
   border-radius: 8px;
-  background: var(--ui-card);
-  box-shadow: 0 0 0 1px var(--ui-border) inset;
-  padding-left: 12px;
-  padding-right: 12px;
+  background: var(--ui-panel);
 }
 
-.session-search-block :deep(.el-input__wrapper:hover) {
-  box-shadow: 0 0 0 1px var(--ui-soft) inset;
+.console-nav button {
+  border: 0;
+  border-radius: 6px;
+  padding: 8px 10px;
+  color: var(--ui-muted);
+  background: transparent;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
 }
 
-.session-search-block :deep(.el-input__wrapper.is-focus) {
-  box-shadow:
-    0 0 0 1px var(--ui-accent) inset,
-    0 0 0 3px var(--ui-accent-tint);
+.console-nav button.active {
+  color: var(--ui-accent);
+  background: var(--ui-accent-tint);
+  box-shadow: inset 0 0 0 1px #d0dce9;
 }
 
-.session-search-block :deep(.el-input__inner) {
-  font-size: 14px;
+.session-tools {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.session-tools.compact {
+  margin-bottom: 10px;
+}
+
+.tool-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.cloud-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.tool-select {
+  min-width: 0;
 }
 
 .section-head {
@@ -2938,10 +2883,9 @@ h1 {
 .section-label {
   margin: 0;
   font-size: 12px;
-  letter-spacing: 0;
-  text-transform: none;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
   color: var(--ui-muted);
-  font-weight: 650;
 }
 
 .section-meta {
@@ -2950,38 +2894,32 @@ h1 {
 }
 
 .session-panel {
-  padding: 0;
-  background: transparent;
+  border: 1px solid var(--ui-border);
+  border-radius: 8px;
+  padding: 10px;
+  background: var(--ui-panel);
 }
 
-.history-settings {
+.branch-panel {
   border: 1px solid var(--ui-border);
   border-radius: 8px;
   overflow: hidden;
   background: var(--ui-card);
 }
 
-.branch-panel-head {
-  display: grid;
+.branch-panel summary {
+  list-style: none;
+  cursor: pointer;
+  padding: 9px 10px;
+  display: flex;
+  justify-content: space-between;
   gap: 8px;
-  padding: 10px;
-  border-bottom: 1px solid var(--ui-border-soft);
+  font-size: 13px;
+  font-weight: 700;
 }
 
-.branch-panel-title {
-  margin: 0;
-  min-width: 0;
-  white-space: nowrap;
-  color: var(--ui-muted);
-  font-size: 12px;
-  font-weight: 650;
-  line-height: 1.3;
-}
-
-.branch-panel-title span {
-  margin-left: 6px;
-  color: var(--ui-soft);
-  font-weight: 500;
+.branch-panel summary::-webkit-details-marker {
+  display: none;
 }
 
 .session-list,
@@ -3024,7 +2962,7 @@ h1 {
 .session-title {
   margin: 0;
   font-size: 13px;
-  font-weight: 650;
+  font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -3045,22 +2983,7 @@ h1 {
   flex-wrap: wrap;
 }
 
-.session-actions button {
-  border: 0;
-  background: transparent;
-  color: var(--ui-muted);
-  border-radius: 6px;
-  padding: 2px 4px;
-  font-size: 11px;
-  font-weight: 500;
-  cursor: pointer;
-}
-
-.session-actions button:hover {
-  color: var(--ui-accent);
-  background: var(--ui-accent-tint);
-}
-
+.session-actions button,
 .branch-head-actions button {
   border: 1px solid var(--ui-border);
   background: var(--ui-sand);
@@ -3068,17 +2991,11 @@ h1 {
   border-radius: 6px;
   padding: 3px 8px;
   font-size: 11px;
-  font-weight: 500;
   cursor: pointer;
 }
 
 .session-actions .danger {
-  color: #9f6b50;
-}
-
-.session-actions .danger:hover {
   color: #8b4513;
-  background: #f7ebe6;
 }
 
 .session-empty {
@@ -3088,18 +3005,11 @@ h1 {
 }
 
 .branch-head-actions {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 6px;
-}
-
-.branch-head-actions button {
-  min-width: 0;
-  white-space: nowrap;
-  padding-left: 4px;
-  padding-right: 4px;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 0 10px 8px;
 }
 
 .branch-item {
@@ -3181,61 +3091,9 @@ h1 {
   background: var(--ui-panel);
 }
 
-.settings-help {
-  display: grid;
-  gap: 6px;
-}
-
-.settings-help p {
-  margin: 0;
-  color: var(--ui-muted);
-  font-size: 13px;
-  line-height: 1.55;
-}
-
 .developer-tools {
   display: grid;
-  gap: 12px;
-  min-width: 0;
-}
-
-.developer-field {
-  min-width: 0;
-  display: grid;
-  gap: 6px;
-}
-
-.developer-field span {
-  color: var(--ui-muted);
-  font-size: 12px;
-  font-weight: 650;
-}
-
-.developer-control,
-.developer-full-button {
-  width: 100%;
-}
-
-.developer-switch-row {
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-}
-
-.developer-button-pair {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-}
-
-.developer-button-pair .el-button {
-  width: 100%;
-  min-width: 0;
-}
-
-.developer-tools .stream-detail {
-  display: block;
-  padding-top: 2px;
-  line-height: 1.5;
+  gap: 10px;
 }
 
 .auth-buttons {
@@ -3246,44 +3104,6 @@ h1 {
 
 .full-width {
   width: 100%;
-}
-
-:deep(.el-button),
-:deep(.el-input__inner),
-:deep(.el-textarea__inner),
-:deep(.el-select__placeholder),
-:deep(.el-segmented),
-:deep(.el-form-item__label),
-:deep(.el-tag) {
-  font-family: var(--ui-serif);
-}
-
-:deep(.el-button) {
-  font-weight: 600;
-}
-
-:deep(.el-button--primary) {
-  --el-button-bg-color: var(--ui-accent);
-  --el-button-border-color: var(--ui-accent);
-  --el-button-text-color: #ffffff;
-  --el-button-hover-bg-color: var(--ui-accent-light);
-  --el-button-hover-border-color: var(--ui-accent-light);
-  --el-button-active-bg-color: var(--ui-accent);
-  --el-button-active-border-color: var(--ui-accent);
-  --el-button-disabled-bg-color: #b8c4d5;
-  --el-button-disabled-border-color: #b8c4d5;
-  --el-button-disabled-text-color: #ffffff;
-}
-
-:deep(.el-input__wrapper),
-:deep(.el-textarea__inner) {
-  background: var(--ui-card);
-  box-shadow: 0 0 0 1px var(--ui-border) inset;
-}
-
-:deep(.el-input__wrapper:hover),
-:deep(.el-textarea__inner:hover) {
-  box-shadow: 0 0 0 1px var(--ui-soft) inset;
 }
 
 .workspace {
@@ -3307,18 +3127,17 @@ h1 {
 
 .workspace-kicker {
   margin: 0;
-  font-size: 12px;
-  letter-spacing: 0;
-  text-transform: none;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
   color: var(--ui-muted);
-  font-weight: 600;
 }
 
 h2 {
-  margin: 6px 0 0;
+  margin: 8px 0 0;
   font-size: 22px;
   line-height: 1.22;
-  font-weight: 650;
+  font-weight: 500;
   letter-spacing: 0;
 }
 
@@ -3334,6 +3153,14 @@ h2 {
   gap: 8px;
   flex-wrap: wrap;
   justify-content: flex-end;
+}
+
+.workspace-select {
+  width: 130px;
+}
+
+.workspace-input {
+  width: 130px;
 }
 
 .stream-detail {
@@ -3396,96 +3223,73 @@ h2 {
 }
 
 .welcome-block {
-  max-width: 720px;
-  margin: 0 auto 18px;
+  max-width: 930px;
+  margin: 0 auto 12px;
   padding: 0 20px;
-  text-align: center;
 }
 
 .welcome-block h3 {
   margin: 0;
-  font-size: 27px;
-  line-height: 1.2;
-  font-weight: 650;
+  font-size: 28px;
+  line-height: 1.16;
+  font-weight: 500;
 }
 
 .welcome-block p {
   margin: 8px 0 0;
-  font-size: 14px;
-  line-height: 1.65;
   color: var(--ui-muted);
 }
 
-.welcome-core {
-  margin-top: 22px;
+.welcome-steps {
+  margin-top: 16px;
   display: grid;
-  justify-items: center;
-  gap: 7px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
 }
 
-.welcome-upload-button {
-  min-width: 178px;
-  border: 1px solid var(--ui-accent);
+.welcome-steps div {
+  min-width: 0;
+  border: 1px solid var(--ui-border);
   border-radius: 8px;
-  padding: 11px 18px;
-  background: var(--ui-accent);
-  color: #ffffff;
-  font-size: 14px;
-  font-weight: 650;
-  cursor: pointer;
-  box-shadow: 0 14px 34px rgba(32, 61, 92, 0.14);
+  padding: 10px;
+  background: var(--ui-panel);
 }
 
-.welcome-upload-button:hover {
-  background: var(--ui-accent-light);
-  border-color: var(--ui-accent-light);
-}
-
-.welcome-upload-button:disabled {
-  cursor: wait;
-  opacity: 0.72;
-}
-
-.welcome-file-input {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  opacity: 0;
-  pointer-events: none;
-}
-
-.welcome-core small,
-.welcome-core span {
+.welcome-steps span {
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  display: grid;
+  place-items: center;
   font-size: 12px;
-  line-height: 1.5;
-  color: var(--ui-muted);
+  font-weight: 500;
+  color: var(--ui-card);
+  background: var(--ui-accent);
+}
+
+.welcome-steps strong {
+  display: block;
+  margin-top: 8px;
+  font-size: 13px;
+  line-height: 1.35;
 }
 
 .welcome-prompts {
-  margin-top: 18px;
+  margin-top: 14px;
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
-  justify-content: center;
-  align-items: center;
-}
-
-.welcome-prompts p {
-  flex-basis: 100%;
-  margin: 0 0 2px;
-  font-size: 13px;
-  color: var(--ui-muted);
 }
 
 .welcome-prompts button,
+.quick-prompts button,
 .message-actions button {
   border: 1px solid var(--ui-border);
-  background: var(--ui-card);
+  background: var(--ui-panel);
   color: var(--ui-text);
   border-radius: 6px;
-  padding: 7px 11px;
-  font-size: 13px;
-  font-weight: 500;
+  padding: 6px 11px;
+  font-size: 12px;
   cursor: pointer;
 }
 
@@ -3498,13 +3302,31 @@ h2 {
   max-width: 930px;
   margin: 0 auto;
   padding: 0 20px 18px;
-  display: block;
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr);
+  gap: 12px;
   align-items: flex-start;
 }
 
 .message-row.user {
-  display: flex;
-  justify-content: flex-end;
+  grid-template-columns: minmax(0, 1fr) 38px;
+}
+
+.avatar {
+  width: 38px;
+  height: 38px;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  font-size: 11px;
+  font-weight: 500;
+  background: var(--ui-accent);
+  color: var(--ui-card);
+}
+
+.message-row.user .avatar {
+  grid-column: 2;
+  background: var(--ui-muted);
 }
 
 .bubble-wrap {
@@ -3525,7 +3347,6 @@ h2 {
   gap: 8px;
   color: var(--ui-muted);
   font-size: 12px;
-  font-weight: 500;
 }
 
 .status-dot {
@@ -3537,7 +3358,7 @@ h2 {
   border-radius: 8px;
   border: 1px solid var(--ui-border);
   background: var(--ui-card);
-  padding: 13px 15px;
+  padding: 12px 14px;
 }
 
 .message-row.assistant .bubble {
@@ -3586,8 +3407,7 @@ h2 {
 .plain {
   margin: 0;
   white-space: pre-wrap;
-  line-height: 1.7;
-  font-size: 14px;
+  line-height: 1.6;
 }
 
 .answer-module-panel {
@@ -3597,13 +3417,6 @@ h2 {
   margin-bottom: 10px;
 }
 
-.answer-module-label {
-  margin: 0 0 7px;
-  color: var(--ui-muted);
-  font-size: 12px;
-  font-weight: 650;
-}
-
 .answer-module-panel span {
   border: 1px solid var(--ui-border);
   border-radius: 6px;
@@ -3611,16 +3424,15 @@ h2 {
   background: var(--ui-accent-tint);
   color: var(--ui-accent);
   font-size: 12px;
-  font-weight: 600;
 }
 
 .answer-section-title {
   margin: 0 0 8px;
   color: var(--ui-text);
-  font-size: 15px;
-  font-weight: 650;
-  border-left: 2px solid var(--ui-accent);
-  padding-left: 9px;
+  font-size: 14px;
+  font-weight: 500;
+  border-left: 3px solid var(--ui-accent);
+  padding-left: 8px;
 }
 
 .message-actions {
@@ -4064,64 +3876,14 @@ h2 {
   margin-top: 8px;
   display: flex;
   justify-content: space-between;
-  align-items: flex-end;
+  align-items: center;
   gap: 10px;
 }
 
-.composer-left {
-  min-width: 0;
-  display: grid;
-  gap: 8px;
-}
-
-.composer-controls {
+.quick-prompts {
   display: flex;
-  align-items: center;
-  gap: 6px;
   flex-wrap: wrap;
-}
-
-.composer-quality-select {
-  width: 124px;
-}
-
-.composer-quality-select :deep(.el-select__wrapper) {
-  min-height: 30px;
-  border-radius: 999px;
-  background: var(--ui-panel);
-  box-shadow: 0 0 0 1px var(--ui-border) inset;
-}
-
-.composer-toggle {
-  height: 30px;
-  border: 1px solid var(--ui-border);
-  border-radius: 999px;
-  padding: 0 10px;
-  background: var(--ui-panel);
-  color: var(--ui-muted);
-  display: inline-flex;
-  align-items: center;
   gap: 6px;
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.composer-toggle span {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--ui-soft);
-}
-
-.composer-toggle.active {
-  color: var(--ui-accent);
-  background: var(--ui-accent-tint);
-  border-color: #d0dce9;
-}
-
-.composer-toggle.active span {
-  background: var(--ui-accent);
 }
 
 .composer-actions {
@@ -4131,8 +3893,7 @@ h2 {
 
 .markdown :deep(p) {
   margin: 0 0 10px;
-  font-size: 14px;
-  line-height: 1.72;
+  line-height: 1.7;
 }
 
 .markdown :deep(p:last-child) {
@@ -4321,12 +4082,18 @@ h2 {
     justify-content: flex-start;
   }
 
+  .workspace-select,
+  .workspace-input {
+    width: 120px;
+  }
+
   .evaluation-page {
     padding: 12px;
   }
 
   .eval-score-strip,
-  .eval-run-grid {
+  .eval-run-grid,
+  .welcome-steps {
     grid-template-columns: 1fr;
   }
 
@@ -4339,11 +4106,22 @@ h2 {
   }
 
   .message-row {
-    display: block;
+    grid-template-columns: 32px minmax(0, 1fr);
+    gap: 8px;
+  }
+
+  .message-row.user {
+    grid-template-columns: minmax(0, 1fr) 32px;
+  }
+
+  .avatar {
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
   }
 
   .thinking {
-    padding-left: 12px;
+    padding-left: 52px;
   }
 
   .composer-footer {

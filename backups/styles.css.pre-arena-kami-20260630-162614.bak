@@ -1,0 +1,57 @@
+:root {
+  --ui-bg: #f5f4ed;
+  --ui-text: #141413;
+  --ui-muted: #504e49;
+  --ui-soft: #6b6a64;
+  --ui-accent: #1b365d;
+  --ui-accent-light: #2d5a8a;
+  --ui-accent-tint: #eef2f7;
+  --ui-border: #e8e6dc;
+  --ui-border-soft: #e5e3d8;
+  --ui-card: #faf9f5;
+  --ui-panel: #f1efe6;
+  --ui-sand: #e8e6dc;
+  --ui-serif: Charter, "TsangerJinKai02", "Source Han Serif SC", "Noto Serif CJK SC", "Songti SC",
+    STSong, Georgia, serif;
+  --ui-mono: "JetBrains Mono", "SF Mono", "Fira Code", Consolas, "TsangerJinKai02",
+    "Source Han Serif SC", monospace;
+}
+
+html.dark {
+  --ui-bg: #141413;
+  --ui-text: #faf9f5;
+  --ui-muted: #b0aea5;
+  --ui-soft: #8c8a80;
+  --ui-accent: #2d5a8a;
+  --ui-accent-light: #84aad6;
+  --ui-accent-tint: #30302e;
+  --ui-border: #3d3d3a;
+  --ui-border-soft: #504e49;
+  --ui-card: #1e1e1c;
+  --ui-panel: #242421;
+  --ui-sand: #30302e;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  margin: 0;
+  min-height: 100%;
+}
+
+body {
+  font-family: var(--ui-serif);
+  font-synthesis: none;
+  color: var(--ui-text);
+  background: linear-gradient(180deg, var(--ui-bg) 0%, #efede3 100%);
+}
+
+html.dark body {
+  background: linear-gradient(180deg, var(--ui-bg) 0%, #1c1c1a 100%);
+}

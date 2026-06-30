@@ -21,6 +21,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import reactor.core.publisher.Flux;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashSet;
@@ -54,6 +55,11 @@ public class ReactAgentService {
                 request.getChatId(),
                 tenantId
         );
+
+        if (shouldUseFastAnswer(request)) {
+            String answer = fastAnswer(request, routeDecision, tenantId);
+            return success(request.getChatId(), answer, List.of(), routeDecision);
+        }
 
         List<ReactTraceStepVO> trace = new ArrayList<>();
         String rollingContext = "";
@@ -114,6 +120,10 @@ public class ReactAgentService {
                             tenantId
                     );
 
+                    if (shouldUseFastAnswer(request)) {
+                        return streamFastAnswer(request, routeDecision, tenantId, startedNs, firstTokenLatencyMsRef, outcomeRef);
+                    }
+
                     List<ReactTraceStepVO> trace = new ArrayList<>();
                     String rollingContext = "";
                     String directAnswer = "";
@@ -156,7 +166,7 @@ public class ReactAgentService {
                     StringBuilder answerBuilder = new StringBuilder();
 
                     Flux<String> answerSourceFlux = StringUtils.hasText(directAnswer)
-                            ? Flux.just(directAnswer)
+                            ? streamAnswerChunks(directAnswer)
                             : callModelStream(
                             "你是 LexScope Agent，请结合研判轨迹和观察信息给出专业、审慎、可追溯的民商法分析。",
                             buildFinalPrompt(request, trace, rollingContext),
@@ -288,6 +298,83 @@ public class ReactAgentService {
         )).toMap();
     }
 
+    private boolean shouldUseFastAnswer(ReactChatRequestVO request) {
+        String prompt = emptyIfBlank(request == null ? "" : request.getPrompt());
+        String normalized = prompt.toLowerCase(Locale.ROOT);
+        if (!StringUtils.hasText(normalized) || normalized.length() > 100) {
+            return false;
+        }
+
+        if (containsAny(normalized,
+                "上传", "材料", "文档", "pdf", "附件", "检索", "引用", "来源", "出处",
+                "法条", "法规", "案例", "判决", "裁判", "类案", "争议焦点", "研判报告",
+                "生成报告", "报告", "根据以下", "如下", "证据", "依据", "合同条款")) {
+            return false;
+        }
+
+        return containsAny(normalized,
+                "是什么", "什么意思", "怎么理解", "区别", "能否", "是否", "可以", "如何",
+                "怎么", "为什么", "有哪些", "责任", "风险", "期限", "违约", "解除",
+                "赔偿", "合同", "租赁", "公司", "股权", "担保", "借款", "买卖");
+    }
+
+    private String fastAnswer(ReactChatRequestVO request,
+                              ModelRouter.ModelRouteDecision routeDecision,
+                              String tenantId) {
+        String answer = callModel(
+                "你是法律智能问答助手，请用中文给出简明、审慎、可执行的初步法律解释。",
+                buildFastAnswerPrompt(request),
+                routeDecision,
+                tenantId,
+                "react_fast"
+        );
+        return StringUtils.hasText(answer) ? answer : "当前未能生成答案，请稍后重试。";
+    }
+
+    private Flux<String> streamFastAnswer(ReactChatRequestVO request,
+                                          ModelRouter.ModelRouteDecision routeDecision,
+                                          String tenantId,
+                                          long startedNs,
+                                          AtomicReference<Long> firstTokenLatencyMsRef,
+                                          AtomicReference<String> outcomeRef) {
+        StringBuilder answerBuilder = new StringBuilder();
+        return callModelStream(
+                "你是法律智能问答助手，请用中文给出简明、审慎、可执行的初步法律解释。",
+                buildFastAnswerPrompt(request),
+                routeDecision,
+                tenantId,
+                "react_fast"
+        )
+                .map(token -> {
+                    if (firstTokenLatencyMsRef.get() == null) {
+                        firstTokenLatencyMsRef.set(elapsedMs(startedNs));
+                    }
+                    answerBuilder.append(token);
+                    return formatSse("token", toJson(Map.of("token", token)));
+                })
+                .concatWith(Flux.defer(() -> {
+                    if (firstTokenLatencyMsRef.get() == null) {
+                        firstTokenLatencyMsRef.set(elapsedMs(startedNs));
+                    }
+                    ReactChatResponseVO response = success(request.getChatId(), answerBuilder.toString(), List.of(), routeDecision);
+                    outcomeRef.set("success");
+                    return Flux.just(formatSse("done", toJson(response)));
+                }));
+    }
+
+    private String buildFastAnswerPrompt(ReactChatRequestVO request) {
+        return """
+                用户问题:
+                %s
+
+                请直接回答这个普通法律问题，要求：
+                1. 先给出简明结论；
+                2. 再说明关键判断因素；
+                3. 不要编造具体法条编号、案号或引用来源；
+                4. 如果需要结合材料才能判断，请提醒用户补充合同、判决书或其他法律资料。
+                """.formatted(emptyIfBlank(request.getPrompt()));
+    }
+
     private String summarizeAnswer(ReactChatRequestVO request,
                                    List<ReactTraceStepVO> trace,
                                    String rollingContext,
@@ -380,6 +467,37 @@ public class ReactAgentService {
                     long outputTokens = tenantCostService.estimateTokens(outputCollector.toString());
                     tenantCostService.recordUsage(tenantId, routeDecision.costTier(), inputTokens, outputTokens, endpointTag);
                 });
+    }
+
+    private Flux<String> streamAnswerChunks(String answer) {
+        String text = emptyIfBlank(answer);
+        if (!StringUtils.hasText(text)) {
+            return Flux.empty();
+        }
+
+        List<String> chunks = new ArrayList<>();
+        StringBuilder chunk = new StringBuilder();
+        int codePointCount = 0;
+        for (int offset = 0; offset < text.length();) {
+            int codePoint = text.codePointAt(offset);
+            chunk.appendCodePoint(codePoint);
+            offset += Character.charCount(codePoint);
+            codePointCount++;
+
+            if (codePointCount >= 3 || isNaturalStreamBreak(codePoint)) {
+                chunks.add(chunk.toString());
+                chunk.setLength(0);
+                codePointCount = 0;
+            }
+        }
+        if (chunk.length() > 0) {
+            chunks.add(chunk.toString());
+        }
+        return Flux.fromIterable(chunks).delayElements(Duration.ofMillis(24));
+    }
+
+    private boolean isNaturalStreamBreak(int codePoint) {
+        return Character.isWhitespace(codePoint) || "，。；！？、,.!?;:\n".indexOf(codePoint) >= 0;
     }
 
     private ReasonDecision parseDecision(String rawModelOutput) {

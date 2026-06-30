@@ -273,6 +273,32 @@ export async function streamReactChat(
   }
 }
 
+export async function uploadLegalFile(
+  chatId: string,
+  file: File,
+  auth?: AuthContext,
+): Promise<{ ok: number; msg: string; job?: { sourceName?: string; status?: string } }> {
+  const form = new FormData();
+  form.append('file', file);
+  const response = await fetch(resolveApi(`/ai/pdf/upload/${encodeURIComponent(chatId)}`), {
+    method: 'POST',
+    headers: {
+      ...buildAuthHeaders(auth),
+      'X-Idempotency-Key': `frontend-${chatId}-${file.size}-${file.lastModified}`,
+    },
+    body: form,
+  });
+  const payload = await parseJsonSafely<{
+    ok: number;
+    msg: string;
+    job?: { sourceName?: string; status?: string };
+  }>(response);
+  if (!response.ok || !payload || payload.ok !== 1) {
+    throw formatHttpError(response.status, payload?.msg ?? 'upload failed');
+  }
+  return payload;
+}
+
 interface PagedResult<T> {
   items: T[];
   total: number;

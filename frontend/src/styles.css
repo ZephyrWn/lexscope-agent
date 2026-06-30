@@ -1,19 +1,49 @@
 :root {
-  --ui-text: #1b2434;
-  --ui-muted: #596479;
-  --ui-accent: #0f766e;
-  --ui-border: rgba(15, 23, 42, 0.15);
-  --ui-card: rgba(250, 252, 255, 0.82);
-  --ui-panel: rgba(241, 246, 255, 0.76);
+  --ui-bg: #f7f7f4;
+  --ui-text: #171717;
+  --ui-muted: #5f5f5b;
+  --ui-soft: #85857f;
+  --ui-accent: #1b365d;
+  --ui-accent-light: #274a78;
+  --ui-accent-tint: #edf1f6;
+  --ui-border: #e3e3de;
+  --ui-border-soft: #ededeb;
+  --ui-card: #fbfbfa;
+  --ui-panel: #f1f1ee;
+  --ui-sand: #ecece8;
+  --el-color-primary: var(--ui-accent);
+  --el-color-primary-light-3: #274a78;
+  --el-color-primary-light-5: #6f86a7;
+  --el-color-primary-light-7: #b8c4d5;
+  --el-color-primary-light-8: #d0d8e4;
+  --el-color-primary-light-9: var(--ui-accent-tint);
+  --el-color-primary-dark-2: #132947;
+  --ui-serif: Inter, "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC",
+    "Hiragino Sans GB", "Noto Sans CJK SC", Arial, sans-serif;
+  --ui-mono: "JetBrains Mono", "SF Mono", "Fira Code", Consolas, "Microsoft YaHei UI",
+    monospace;
 }
 
 html.dark {
-  --ui-text: #e2e8f0;
-  --ui-muted: #9aa9bf;
-  --ui-accent: #34d399;
-  --ui-border: rgba(148, 163, 184, 0.25);
-  --ui-card: rgba(8, 15, 30, 0.82);
-  --ui-panel: rgba(18, 28, 46, 0.72);
+  --ui-bg: #10100f;
+  --ui-text: #f5f5f2;
+  --ui-muted: #b7b7b0;
+  --ui-soft: #8c8c86;
+  --ui-accent: #8fb3e3;
+  --ui-accent-light: #b7cff0;
+  --ui-accent-tint: #202225;
+  --ui-border: #343430;
+  --ui-border-soft: #2a2a27;
+  --ui-card: #181817;
+  --ui-panel: #20201e;
+  --ui-sand: #2b2b28;
+  --el-color-primary: var(--ui-accent);
+  --el-color-primary-light-3: #6f93c2;
+  --el-color-primary-light-5: #56769f;
+  --el-color-primary-light-7: #34465d;
+  --el-color-primary-light-8: #2a3646;
+  --el-color-primary-light-9: var(--ui-accent-tint);
+  --el-color-primary-dark-2: #b7cff0;
 }
 
 *,
@@ -29,18 +59,19 @@ body,
   min-height: 100%;
 }
 
+html {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: geometricPrecision;
+}
+
 body {
-  font-family: 'IBM Plex Sans', 'PingFang SC', 'Hiragino Sans GB', 'Noto Sans CJK SC', sans-serif;
+  font-family: var(--ui-serif);
+  font-synthesis: none;
   color: var(--ui-text);
-  background:
-    radial-gradient(circle at 6% -14%, rgba(14, 116, 144, 0.18), transparent 36%),
-    radial-gradient(circle at 92% -10%, rgba(15, 118, 110, 0.18), transparent 33%),
-    linear-gradient(164deg, #f6f9ff 0%, #eef4ff 45%, #f4fffd 100%);
+  background: var(--ui-bg);
 }
 
 html.dark body {
-  background:
-    radial-gradient(circle at 12% -10%, rgba(14, 165, 233, 0.24), transparent 28%),
-    radial-gradient(circle at 90% -16%, rgba(16, 185, 129, 0.2), transparent 24%),
-    linear-gradient(152deg, #020617 0%, #0c162a 58%, #12233a 100%);
+  background: var(--ui-bg);
 }
