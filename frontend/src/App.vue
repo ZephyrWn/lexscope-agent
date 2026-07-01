@@ -1,5 +1,18 @@
 <template>
-  <div class="app-shell">
+  <div
+    class="app-shell"
+    :class="{ 'dragging-file': isDraggingFile }"
+    @dragenter.prevent="handlePageDragEnter"
+    @dragover.prevent="handlePageDragOver"
+    @dragleave.prevent="handlePageDragLeave"
+    @drop.prevent="handlePageFileDrop"
+  >
+    <div v-if="isDraggingFile" class="drop-overlay">
+      <div>
+        <strong>松开上传法律资料</strong>
+        <span>支持 PDF / TXT，Word 请先另存为 PDF</span>
+      </div>
+    </div>
     <aside class="sidebar">
       <div class="brand-block">
         <p class="eyebrow">LexScope</p>
@@ -67,6 +80,9 @@
       </section>
 
       <div class="sidebar-footer">
+        <div class="sidebar-usage-card">
+          本月用量 ${{ (costSummary?.monthCostUsd ?? 0).toFixed(4) }}
+        </div>
         <button class="settings-link" type="button" @click="settingsVisible = true">
           设置
         </button>
@@ -285,22 +301,10 @@
                   @click="openDeveloperEvaluation"
                   >打开效果评测</el-button
                 >
-                <span v-if="costSummary" class="stream-detail"
-                  >本月用量 ${{ costSummary.monthCostUsd.toFixed(4) }} / 预算 ${{
-                    costSummary.monthlyBudgetUsd.toFixed(4)
-                  }}</span
-                >
               </div>
             </div>
           </details>
 
-          <section class="settings-card">
-            <p class="section-label">关于系统 / 使用说明</p>
-            <div class="settings-help">
-              <p>法律智能问答用于根据你提供的法律资料生成有依据的初步分析。</p>
-              <p>一般使用时，直接新建问答、输入问题并查看引用来源即可。</p>
-            </div>
-          </section>
         </div>
       </el-drawer>
 
@@ -324,13 +328,17 @@
               <h3>开始法律智能问答</h3>
               <p>上传合同、判决书或法规材料，直接提问即可获得分析。</p>
               <div class="welcome-core">
+                <div class="welcome-file-badge" aria-hidden="true">
+                  <el-icon><DocumentIcon /></el-icon>
+                </div>
                 <button
                   class="welcome-upload-button"
                   type="button"
                   :disabled="uploadingLegalFile"
                   @click="openWelcomeFilePicker"
                 >
-                  {{ uploadingLegalFile ? '上传中...' : '上传法律资料' }}
+                  <el-icon><UploadIcon /></el-icon>
+                  <span>{{ uploadingLegalFile ? '上传中...' : '上传法律资料' }}</span>
                 </button>
                 <input
                   ref="welcomeFileInput"
@@ -340,17 +348,16 @@
                   @change="handleWelcomeFileSelected"
                 />
                 <small>支持 PDF / Word / TXT</small>
-                <span>或者直接输入问题开始</span>
               </div>
+              <div class="welcome-divider"><span>或者直接输入问题开始</span></div>
               <div class="welcome-prompts">
-                <p>你可以试试：</p>
                 <button
                   v-for="sample in welcomePrompts"
                   :key="sample"
                   type="button"
                   @click="prompt = sample"
                 >
-                  {{ sample }}
+                  <span>{{ sample }}</span>
                 </button>
               </div>
             </div>
@@ -384,50 +391,52 @@
                       <div></div>
                     </div>
                     <div v-else>
-                      <template v-if="shouldShowAnswerScaffold(entry.item)">
-                        <p class="answer-module-label">推荐分析方向</p>
-                        <div class="answer-module-panel">
-                          <span v-for="module in answerModules" :key="module">{{ module }}</span>
-                        </div>
-                        <p class="answer-section-title">初步分析</p>
-                      </template>
                       <!-- eslint-disable-next-line vue/no-v-html -->
                       <div class="markdown" v-html="renderMarkdown(entry.item.content)"></div>
-                      <div v-if="entry.item.citations?.length" class="citation-panel">
-                        <p class="citation-title">引用来源</p>
-                        <div class="citation-list">
+                      <div v-if="citationCards(entry.item).length" class="citation-panel">
+                        <p class="citation-title">参考来源</p>
+                        <div class="citation-card-list">
                           <button
-                            v-for="(citation, citationIndex) in entry.item.citations"
-                            :key="`${entry.item.id}-${citationIndex}`"
+                            v-for="card in citationCards(entry.item)"
+                            :key="`${entry.item.id}-${card.index}-${card.fileName}-${card.pageNumber ?? ''}`"
                             type="button"
-                            class="citation-chip"
-                            @click="openCitation(citation)"
+                            class="citation-card"
+                            @click="openCitation(card)"
                           >
-                            [{{ citationIndex + 1 }}] {{ citation }}
+                            <span class="citation-card-number">[{{ card.index }}]</span>
+                            <span class="citation-card-main">
+                              <strong>{{ card.fileName }}</strong>
+                              <small v-if="card.pageNumber">第 {{ card.pageNumber }} 页</small>
+                              <span v-if="card.snippet">{{ card.snippet }}</span>
+                            </span>
                           </button>
                         </div>
                       </div>
-                      <div v-if="entry.item.evidence?.length" class="evidence-panel">
-                        <p class="citation-title">相关依据</p>
-                        <ul>
-                          <li
-                            v-for="(snippet, snippetIndex) in entry.item.evidence"
-                            :key="`${entry.item.id}-ev-${snippetIndex}`"
-                          >
-                            {{ snippet }}
-                          </li>
-                        </ul>
-                      </div>
                       <div
+                        v-if="shouldShowFollowUpSuggestions(entry.item)"
+                        class="follow-up-suggestions"
+                      >
+                        <p>我理解你可能还想进一步了解：</p>
+                        <ol>
+                          <li
+                            v-for="question in followUpSuggestionsFor(entry.item, entry.index)"
+                            :key="`${entry.item.id}-${question}`"
+                          >
+                            {{ question }}
+                          </li>
+                        </ol>
+                        <p>需要我继续帮你分析其中一个问题吗？</p>
+                      </div>
+                      <details
                         v-if="traceSteps.length && entry.index === virtualMessages.length - 1"
                         class="trace-timeline-panel"
                       >
-                        <div class="trace-timeline-header">
+                        <summary class="trace-timeline-header">
                           <span class="trace-timeline-title">查看处理过程</span>
                           <span class="trace-timeline-meta"
                             >{{ traceSteps.length }} 步 · {{ traceDurationMs }}ms</span
                           >
-                        </div>
+                        </summary>
                         <div class="trace-timeline">
                           <div
                             v-for="(ts, tsIdx) in traceSteps"
@@ -475,27 +484,10 @@
                                   }}</pre>
                                 </div>
                               </details>
-                              <div v-if="tsIdx === 0" class="trace-retrieval-lanes">
-                                <span class="trace-field-label">资料匹配</span>
-                                <div class="retrieval-bar">
-                                  <div class="retrieval-lane vector" style="width: 40%">
-                                    <span>文档 40%</span>
-                                  </div>
-                                  <div class="retrieval-lane keyword" style="width: 25%">
-                                    <span>关键词 25%</span>
-                                  </div>
-                                  <div class="retrieval-lane graph" style="width: 20%">
-                                    <span>关联 20%</span>
-                                  </div>
-                                  <div class="retrieval-lane web" style="width: 15%">
-                                    <span>补充 15%</span>
-                                  </div>
-                                </div>
-                              </div>
                             </div>
                           </div>
                         </div>
-                      </div>
+                      </details>
                     </div>
                   </template>
 
@@ -504,8 +496,8 @@
                       <el-input
                         v-model="editingMessageDraft"
                         type="textarea"
-                        :rows="3"
-                        resize="none"
+                        :autosize="{ minRows: 6, maxRows: 14 }"
+                        resize="vertical"
                       />
                       <div class="edit-actions">
                         <el-button size="small" @click="cancelEditMessage">取消</el-button>
@@ -559,7 +551,7 @@
                     type="button"
                     @click="startEditMessage(entry.item)"
                   >
-                    编辑后重发
+                    编辑
                   </button>
                 </div>
               </div>
@@ -582,7 +574,7 @@
               v-model="prompt"
               class="composer-input"
               type="textarea"
-              :rows="3"
+              :autosize="{ minRows: 3, maxRows: 10 }"
               resize="none"
               placeholder="输入你的问题，Enter 发送，Shift + Enter 换行"
               @keydown.enter.exact.prevent="send"
@@ -719,6 +711,35 @@
         </section>
       </section>
     </main>
+
+    <el-dialog
+      v-model="citationPreviewVisible"
+      class="citation-preview-dialog"
+      title="参考来源"
+      width="820px"
+      @closed="closeCitationPreview"
+    >
+      <div class="citation-preview">
+        <div v-if="citationPreviewCard" class="citation-preview-meta">
+          <span class="citation-card-number">[{{ citationPreviewCard.index }}]</span>
+          <strong>{{ citationPreviewCard.fileName }}</strong>
+          <small v-if="citationPreviewCard.pageNumber">第 {{ citationPreviewCard.pageNumber }} 页</small>
+        </div>
+        <p v-if="citationPreviewCard?.snippet" class="citation-preview-snippet">
+          {{ citationPreviewCard.snippet }}
+        </p>
+        <div v-if="citationPreviewLoading" class="citation-preview-state">正在加载 PDF 预览...</div>
+        <div v-else-if="citationPreviewError" class="citation-preview-state error">
+          {{ citationPreviewError }}
+        </div>
+        <iframe
+          v-else-if="citationPreviewPdfUrl"
+          class="citation-preview-frame"
+          :src="citationPreviewPdfUrl"
+          title="PDF 来源预览"
+        ></iframe>
+      </div>
+    </el-dialog>
   </div>
 </template>
 
@@ -736,12 +757,14 @@ import typescriptLang from 'highlight.js/lib/languages/typescript';
 import xmlLang from 'highlight.js/lib/languages/xml';
 import yamlLang from 'highlight.js/lib/languages/yaml';
 import { ElMessage } from 'element-plus';
+import { Document as DocumentIcon, Upload as UploadIcon } from '@element-plus/icons-vue';
 import { marked } from 'marked';
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import {
   compareSessionBranches,
   createEvalDataset,
   exportEvalRunReport,
+  fetchPdfFile,
   getEvalComparison,
   getTenantCostSummary,
   listEvalDatasets,
@@ -750,14 +773,13 @@ import {
   mergeSessionBranches,
   reactChat,
   saveSessionState,
-  setSessionArchived,
-  setSessionPinned,
   streamReactChat,
   submitAnswerFeedback,
   triggerEvalRun,
   uploadLegalFile,
 } from './api/client';
 import type {
+  CitationLike,
   EvalCaseCreate,
   EvalComparison,
   EvalDataset,
@@ -776,9 +798,17 @@ interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
   createdAt: number;
-  citations?: string[];
+  citations?: CitationLike[];
   evidence?: string[];
   state?: 'pending' | 'streaming' | 'done' | 'error' | 'stopped';
+}
+
+interface CitationCard {
+  index: number;
+  fileName: string;
+  pageNumber?: number | null;
+  snippet?: string;
+  debug?: Record<string, unknown>;
 }
 
 interface SessionBranch {
@@ -834,6 +864,8 @@ const DEFAULT_WORKSPACE = 'default';
 const DEFAULT_SERVICE_KEY = 'dev-admin-key-2026';
 const ESTIMATED_ROW_HEIGHT = 156;
 const OVERSCAN_COUNT = 8;
+const AUTO_CLOUD_SYNC_DELAY_MS = 1600;
+const AUTO_CLOUD_SYNC_ERROR_INTERVAL_MS = 60000;
 const modelProfileOptions = [
   { label: '省钱模式', value: 'economy' },
   { label: '均衡模式', value: 'balanced' },
@@ -865,7 +897,6 @@ const DEFAULT_EVAL_DATASET = [
     chatId: 'eval-rag-b',
     question: '回答时列出引用来源，并提炼可复用的风险提示。',
     expectedKeywords: ['引用', '风险', '依据', '提示'],
-    expectedCitations: ['source='],
   },
 ];
 
@@ -970,10 +1001,15 @@ function normalizeMessage(raw: unknown): ChatMessage {
   return {
     id: candidate.id || `${role}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     role,
-    content: typeof candidate.content === 'string' ? candidate.content : '',
+    content:
+      typeof candidate.content === 'string'
+        ? role === 'assistant'
+          ? cleanAssistantContent(candidate.content)
+          : candidate.content
+        : '',
     createdAt: typeof candidate.createdAt === 'number' ? candidate.createdAt : Date.now(),
     citations: Array.isArray(candidate.citations)
-      ? candidate.citations.map((item) => String(item).trim()).filter(Boolean)
+      ? candidate.citations.map((item) => normalizeCitationLike(item)).filter(isCitationLike)
       : [],
     evidence: Array.isArray(candidate.evidence)
       ? candidate.evidence.map((item) => String(item).trim()).filter(Boolean)
@@ -1131,10 +1167,7 @@ function renderMarkdown(content: string): string {
 const cached = safeParse(localStorage.getItem(STORAGE_KEY));
 const legacy = safeParse(localStorage.getItem(LEGACY_STORAGE_KEY));
 const bootstrap = Object.keys(cached).length > 0 ? cached : legacy;
-const initialApiKey =
-  typeof bootstrap.apiKey === 'string' && bootstrap.apiKey.trim()
-    ? bootstrap.apiKey
-    : DEFAULT_SERVICE_KEY;
+const initialApiKey = DEFAULT_SERVICE_KEY;
 
 const darkMode = ref(Boolean(bootstrap.darkMode));
 const activeView = ref<ConsoleView>('chat');
@@ -1146,9 +1179,18 @@ const refreshToken = ref((bootstrap.refreshToken as string | undefined) ?? '');
 const sessionSearch = ref((bootstrap.sessionSearch as string | undefined) ?? '');
 const workspaceFilter = ref((bootstrap.workspaceFilter as string | undefined) ?? 'all');
 const showArchivedSessions = ref(Boolean(bootstrap.showArchivedSessions));
+const workspaceIds = ref<string[]>(
+  Array.isArray(bootstrap.workspaceIds)
+    ? (bootstrap.workspaceIds as unknown[])
+        .filter((item): item is string => typeof item === 'string')
+        .map((item) => item.trim().toLowerCase())
+        .filter(Boolean)
+    : [],
+);
+const hasBootstrapSessions = Array.isArray(bootstrap.sessions) && bootstrap.sessions.length > 0;
 
 const sessions = ref<SessionRecord[]>(
-  Array.isArray(bootstrap.sessions) && bootstrap.sessions.length > 0
+  hasBootstrapSessions
     ? (bootstrap.sessions as unknown[]).map((item) => normalizeSession(item))
     : [createSession()],
 );
@@ -1205,6 +1247,12 @@ const evalCreating = ref(false);
 const evalRunning = ref(false);
 const evalReportExporting = ref(false);
 const uploadingLegalFile = ref(false);
+const isDraggingFile = ref(false);
+const citationPreviewVisible = ref(false);
+const citationPreviewLoading = ref(false);
+const citationPreviewError = ref('');
+const citationPreviewCard = ref<CitationCard | null>(null);
+const citationPreviewPdfUrl = ref('');
 const evalDatasetName = ref('LexScope 法律知识库评测集');
 const evalDatasetDescription = ref('检索命中、引用覆盖与回答可靠性检查集');
 const evalDatasetJson = ref(JSON.stringify(DEFAULT_EVAL_DATASET, null, 2));
@@ -1215,6 +1263,11 @@ const scrollTop = ref(0);
 const messageRowElements = new Map<string, HTMLElement>();
 let resizeObserver: ResizeObserver | null = null;
 let streamResetTimer: number | null = null;
+let fileDragDepth = 0;
+let autoCloudSyncTimer: number | null = null;
+let autoCloudSyncInFlight = false;
+let lastAutoCloudSyncErrorAt = 0;
+const pendingAutoCloudSyncSessionIds = new Set<string>();
 
 const welcomePrompts = [
   '这份合同有哪些风险？',
@@ -1222,14 +1275,70 @@ const welcomePrompts = [
   '生成法律分析报告',
 ];
 
-const answerModules = [
-  '问题概括',
-  '争议焦点',
-  '相关依据',
-  '参考案例',
-  '初步分析',
-  '引用来源',
-  '风险提示',
+const followUpRules = [
+  {
+    keywords: ['门牌号', '地址', '房屋位置', '房屋信息', '坐落', '租赁房屋'],
+    questions: [
+      '门牌号或房屋地址不明确，会不会影响租赁合同效力？',
+      '需要哪些证据证明实际租赁房屋的位置？',
+      '如果合同地址和实际房屋不一致，承租人应如何主张权利？',
+      '这类信息缺失在诉讼中会增加哪些举证风险？',
+    ],
+  },
+  {
+    keywords: ['证据', '举证', '证明', '聊天记录', '转账', '收据', '发票', '录音'],
+    questions: [
+      '目前还缺哪些关键证据会影响判断结果？',
+      '聊天记录、转账记录或收据分别能证明哪些事实？',
+      '如果对方否认相关事实，应该怎样组织证据链？',
+      '哪些证据需要尽快固定，避免后续无法举证？',
+    ],
+  },
+  {
+    keywords: ['诉讼', '起诉', '法院', '仲裁', '管辖', '时效', '判决', '执行'],
+    questions: [
+      '如果进入诉讼，应该优先准备哪些材料？',
+      '这个争议应当向哪个法院或机构主张权利？',
+      '本案有没有诉讼时效或举证期限方面的风险？',
+      '如果胜诉后对方仍不履行，后续执行会遇到哪些问题？',
+    ],
+  },
+  {
+    keywords: ['合同', '条款', '违约', '履行', '解除', '违约金', '押金', '租金', '定金'],
+    questions: [
+      '合同里哪些条款最容易引发违约责任？',
+      '一方想解除合同，需要满足哪些条件？',
+      '押金、租金或违约金应当如何计算更合理？',
+      '如果对方不按合同履行，可以优先主张哪些权利？',
+    ],
+  },
+  {
+    keywords: ['风险', '责任', '赔偿', '损失', '过错', '不利后果'],
+    questions: [
+      '当前最主要的法律风险具体落在哪一方？',
+      '如果风险实际发生，可能产生哪些赔偿或违约责任？',
+      '有哪些做法可以先降低后续争议风险？',
+      '哪些事实会改变责任划分结果？',
+    ],
+  },
+  {
+    keywords: ['出租人', '承租人', '租赁', '房东', '租客', '收回房屋'],
+    questions: [
+      '出租人能不能因为家庭自住提前收回房屋？',
+      '承租人逾期支付租金会不会构成违约？',
+      '押金是否还能要求全部退还？',
+      '租赁关系解除时，双方应当如何交接和结算？',
+    ],
+  },
+  {
+    keywords: ['案例', '类案', '裁判', '判例', '裁判规则'],
+    questions: [
+      '有没有类似案件支持当前分析结论？',
+      '法院在同类争议中通常会重点审查哪些事实？',
+      '如果类案观点不一致，应优先参考哪些裁判理由？',
+      '这个案件和常见类案相比，最关键的差异在哪里？',
+    ],
+  },
 ];
 
 const sessionCount = computed(() => sessions.value.length);
@@ -1260,6 +1369,9 @@ const evalMetricCards = computed<EvalMetricCard[]>(() => {
 
 const workspaceOptions = computed(() => {
   const options = new Set<string>([DEFAULT_WORKSPACE]);
+  workspaceIds.value.forEach((workspace) => {
+    options.add(workspace || DEFAULT_WORKSPACE);
+  });
   sessions.value.forEach((session) => {
     options.add(session.workspaceId || DEFAULT_WORKSPACE);
   });
@@ -1271,6 +1383,7 @@ const activeWorkspaceId = computed({
   set: (value: string) => {
     activeSession.value.workspaceId = value || DEFAULT_WORKSPACE;
     persistState();
+    scheduleAutoCloudSync(activeSession.value.id);
   },
 });
 
@@ -1338,16 +1451,62 @@ const isEmptyConversation = computed(() => {
   });
 });
 
-function shouldShowAnswerScaffold(message: ChatMessage): boolean {
+function shouldShowFollowUpSuggestions(message: ChatMessage): boolean {
   const content = message.content.trim();
   return (
     message.role === 'assistant' &&
+    message.state !== 'pending' &&
+    message.state !== 'streaming' &&
+    message.state !== 'error' &&
+    message.state !== 'stopped' &&
     Boolean(content) &&
     content !== DEFAULT_SYSTEM_MESSAGE &&
     !content.startsWith('已收到《') &&
     !content.startsWith('当前未完成登录或模型配置') &&
+    !content.startsWith('会话已重置') &&
+    !content.startsWith('请求失败') &&
     content !== '输出已手动停止。'
   );
+}
+
+function previousUserQuestion(messageIndex: number): string {
+  for (let i = messageIndex - 1; i >= 0; i -= 1) {
+    const candidate = messages.value[i];
+    if (candidate?.role === 'user' && candidate.content.trim()) {
+      return candidate.content.trim();
+    }
+  }
+  return '';
+}
+
+function followUpSuggestionsFor(message: ChatMessage, messageIndex: number): string[] {
+  const source = `${previousUserQuestion(messageIndex)}\n${message.content}`.toLowerCase();
+  const suggestions: string[] = [];
+
+  const addQuestion = (question: string) => {
+    if (suggestions.length < 4 && !suggestions.includes(question)) {
+      suggestions.push(question);
+    }
+  };
+
+  followUpRules.forEach((rule) => {
+    if (suggestions.length >= 4) {
+      return;
+    }
+    const matched = rule.keywords.some((keyword) => source.includes(keyword.toLowerCase()));
+    if (matched) {
+      rule.questions.forEach(addQuestion);
+    }
+  });
+
+  [
+    '这份资料里最需要优先核实的关键事实是什么？',
+    '如果对方不认可这些事实，我需要准备哪些证据？',
+    '这个问题适合先协商解决，还是需要准备诉讼方案？',
+    '如果要形成正式法律分析报告，还需要补充哪些材料？',
+  ].forEach(addQuestion);
+
+  return suggestions.slice(0, Math.max(2, Math.min(4, suggestions.length)));
 }
 
 const messageMetrics = computed<MessageMetric[]>(() => {
@@ -1496,6 +1655,7 @@ function persistState(): void {
       activeSessionId: activeSessionId.value,
       sessionSearch: sessionSearch.value,
       workspaceFilter: workspaceFilter.value,
+      workspaceIds: workspaceIds.value,
       showArchivedSessions: showArchivedSessions.value,
       sessions: sessions.value,
     }),
@@ -1553,7 +1713,10 @@ async function handleWelcomeFileSelected(event: Event): Promise<void> {
   if (!file || uploadingLegalFile.value) {
     return;
   }
+  await processLegalFile(file);
+}
 
+async function processLegalFile(file: File): Promise<void> {
   const fileName = file.name || '法律资料';
   const lowerName = fileName.toLowerCase();
   if (lowerName.endsWith('.txt')) {
@@ -1577,7 +1740,18 @@ async function handleWelcomeFileSelected(event: Event): Promise<void> {
 
   uploadingLegalFile.value = true;
   try {
-    await uploadLegalFile(chatId.value, file, authContext());
+    try {
+      await uploadLegalFile(chatId.value, file, authContext());
+    } catch (error) {
+      if (!isAuthConfigurationError(error) || effectiveApiKey.value === DEFAULT_SERVICE_KEY) {
+        throw error;
+      }
+      apiKeyInput.value = DEFAULT_SERVICE_KEY;
+      token.value = '';
+      refreshToken.value = '';
+      persistState();
+      await uploadLegalFile(chatId.value, file, authContext());
+    }
     const hint = `已收到《${fileName}》。你可以直接输入想分析的问题。`;
     if (messages.value.length === 1 && messages.value[0].content === DEFAULT_SYSTEM_MESSAGE) {
       messages.value[0].content = hint;
@@ -1586,13 +1760,66 @@ async function handleWelcomeFileSelected(event: Event): Promise<void> {
     }
     syncCurrentSessionBranch();
     persistState();
+    scheduleAutoCloudSync();
     await scrollToBottom(true);
     ElMessage.success('资料已上传，可以开始提问');
   } catch (error) {
-    showFriendlyError(error, '资料上传失败');
+    showUploadError(error);
   } finally {
     uploadingLegalFile.value = false;
   }
+}
+
+function isFileDrag(event: DragEvent): boolean {
+  return Array.from(event.dataTransfer?.types ?? []).includes('Files');
+}
+
+function handlePageDragEnter(event: DragEvent): void {
+  if (!isFileDrag(event)) {
+    return;
+  }
+  fileDragDepth += 1;
+  isDraggingFile.value = true;
+  if (event.dataTransfer) {
+    event.dataTransfer.dropEffect = 'copy';
+  }
+}
+
+function handlePageDragOver(event: DragEvent): void {
+  if (!isFileDrag(event)) {
+    return;
+  }
+  isDraggingFile.value = true;
+  if (event.dataTransfer) {
+    event.dataTransfer.dropEffect = 'copy';
+  }
+}
+
+function handlePageDragLeave(event: DragEvent): void {
+  if (!isFileDrag(event)) {
+    return;
+  }
+  fileDragDepth = Math.max(0, fileDragDepth - 1);
+  if (fileDragDepth === 0) {
+    isDraggingFile.value = false;
+  }
+}
+
+async function handlePageFileDrop(event: DragEvent): Promise<void> {
+  if (!isFileDrag(event)) {
+    return;
+  }
+  fileDragDepth = 0;
+  isDraggingFile.value = false;
+  const file = event.dataTransfer?.files?.[0];
+  if (!file) {
+    return;
+  }
+  if (uploadingLegalFile.value) {
+    ElMessage.warning('资料正在上传，请稍后再试。');
+    return;
+  }
+  await processLegalFile(file);
 }
 
 function prepareReportPrompt(): void {
@@ -1662,14 +1889,67 @@ function errorDetail(error: unknown, fallback: string): string {
   return fallback;
 }
 
+function friendlyErrorMessage(error: unknown, fallback: string): string {
+  const detail = errorDetail(error, fallback).toLowerCase();
+  if (detail.includes('http 401') || detail.includes('unauthorized')) {
+    return '权限校验失败，请检查服务配置或刷新页面后重试。';
+  }
+  if (detail.includes('http 403') || detail.includes('forbidden')) {
+    return '请求被权限或跨域规则拦截，请检查服务配置后重试。';
+  }
+  if (detail.includes('cors') || detail.includes('origin')) {
+    return '浏览器请求被跨域规则拦截，请通过项目提供的 8088 入口访问。';
+  }
+  if (detail.includes('budget exceeded') || detail.includes('预算') || detail.includes('budget')) {
+    return '本次请求被用量预算保护拦截，请稍后重试或调整后端预算配置。';
+  }
+  if (detail.includes('timeout') || detail.includes('timed out')) {
+    return '模型响应超时，请稍后重试。';
+  }
+  if (detail.includes('stream') || detail.includes('sse')) {
+    return '实时输出连接失败，请稍后重试，或切换为单次输出。';
+  }
+  return fallback;
+}
+
 function showFriendlyError(error: unknown, fallback: string): void {
   console.warn(fallback, error);
-  ElMessage.error(FRIENDLY_CONFIGURATION_ERROR);
+  ElMessage.error(friendlyErrorMessage(error, fallback));
+}
+
+function uploadErrorMessage(error: unknown): string {
+  const detail = errorDetail(error, '').toLowerCase();
+  if (detail.includes('http 413') || detail.includes('request entity too large')) {
+    return '文件过大，请上传 100MB 以内的 PDF。';
+  }
+  if (detail.includes('only pdf') || detail.includes('invalid pdf')) {
+    return '当前仅支持可正常解析的 PDF 文件，请确认文件格式正确。';
+  }
+  if (detail.includes('http 401') || detail.includes('http 403')) {
+    return '上传权限校验失败，已使用默认上传配置，请刷新页面后再试。';
+  }
+  return '资料上传失败，请换一个 PDF 文件再试。';
+}
+
+function showUploadError(error: unknown): void {
+  console.warn('资料上传失败', error);
+  ElMessage.error(uploadErrorMessage(error));
+}
+
+function isAuthConfigurationError(error: unknown): boolean {
+  const detail = errorDetail(error, '').toLowerCase();
+  return (
+    detail.includes('http 401') ||
+    detail.includes('http 403') ||
+    detail.includes('missing or invalid credentials') ||
+    detail.includes('unauthorized') ||
+    detail.includes('forbidden')
+  );
 }
 
 function buildFriendlyErrorMessage(error: unknown, fallback: string): string {
   const detail = errorDetail(error, fallback).replace(/```/g, "'''");
-  return `${FRIENDLY_CONFIGURATION_ERROR}\n\n<details><summary>展开详情</summary>\n\n\`\`\`text\n${detail}\n\`\`\`\n\n</details>`;
+  return `${friendlyErrorMessage(error, fallback)}\n\n<details><summary>展开详情</summary>\n\n\`\`\`text\n${detail}\n\`\`\`\n\n</details>`;
 }
 
 function normalizeEvalCase(raw: Record<string, unknown>, index: number): EvalCaseCreate {
@@ -1880,12 +2160,165 @@ function normalizeRemoteSession(raw: unknown): SessionRecord {
   return normalizeSession(raw);
 }
 
-async function loadSessionsFromCloud(): Promise<void> {
-  if (!canUseRemoteSync.value) {
-    ElMessage.warning(FRIENDLY_CONFIGURATION_ERROR);
+function normalizeWorkspaceId(value: string): string {
+  return value.trim().toLowerCase() || DEFAULT_WORKSPACE;
+}
+
+function rememberWorkspaceIds(values: string[]): void {
+  const next = new Set(workspaceIds.value.map(normalizeWorkspaceId));
+  values.forEach((value) => {
+    const normalized = normalizeWorkspaceId(value);
+    if (normalized !== DEFAULT_WORKSPACE) {
+      next.add(normalized);
+    }
+  });
+  workspaceIds.value = [...next].sort((a, b) => a.localeCompare(b, 'zh-CN'));
+}
+
+function armAutoCloudSyncTimer(): void {
+  if (autoCloudSyncTimer) {
+    window.clearTimeout(autoCloudSyncTimer);
+  }
+  autoCloudSyncTimer = window.setTimeout(() => {
+    autoCloudSyncTimer = null;
+    void flushAutoCloudSyncQueue();
+  }, AUTO_CLOUD_SYNC_DELAY_MS);
+}
+
+function scheduleAutoCloudSync(sessionId = activeSessionId.value): void {
+  if (hydrating.value || !canUseRemoteSync.value || !sessionId) {
     return;
   }
-  cloudSyncing.value = true;
+
+  pendingAutoCloudSyncSessionIds.add(sessionId);
+  armAutoCloudSyncTimer();
+}
+
+function clearPendingAutoCloudSync(sessionId: string): void {
+  pendingAutoCloudSyncSessionIds.delete(sessionId);
+  if (pendingAutoCloudSyncSessionIds.size === 0 && autoCloudSyncTimer) {
+    window.clearTimeout(autoCloudSyncTimer);
+    autoCloudSyncTimer = null;
+  }
+}
+
+function notifyAutoCloudSyncFailure(): void {
+  const now = Date.now();
+  if (now - lastAutoCloudSyncErrorAt < AUTO_CLOUD_SYNC_ERROR_INTERVAL_MS) {
+    return;
+  }
+  lastAutoCloudSyncErrorAt = now;
+  ElMessage.warning('自动保存到云端失败，本地记录已保留');
+}
+
+async function flushAutoCloudSyncQueue(): Promise<void> {
+  if (pendingAutoCloudSyncSessionIds.size === 0) {
+    return;
+  }
+  if (!canUseRemoteSync.value) {
+    pendingAutoCloudSyncSessionIds.clear();
+    return;
+  }
+  if (autoCloudSyncInFlight || sending.value || isStreamingResponse.value) {
+    armAutoCloudSyncTimer();
+    return;
+  }
+
+  const sessionIds = [...pendingAutoCloudSyncSessionIds];
+  pendingAutoCloudSyncSessionIds.clear();
+  autoCloudSyncInFlight = true;
+
+  let failed = false;
+  try {
+    if (sessionIds.includes(activeSessionId.value)) {
+      syncCurrentSessionBranch();
+      persistState();
+    }
+
+    for (const sessionId of sessionIds) {
+      const session = getSession(sessionId);
+      if (!session) {
+        continue;
+      }
+
+      const snapshotUpdatedAt = session.updatedAt;
+      try {
+        const saved = await saveSessionState(session as unknown as SessionState, authContext());
+        const current = getSession(sessionId);
+        if (!current) {
+          continue;
+        }
+        if (current.updatedAt > snapshotUpdatedAt) {
+          pendingAutoCloudSyncSessionIds.add(sessionId);
+          continue;
+        }
+
+        const normalized = normalizeRemoteSession(saved);
+        rememberWorkspaceIds([normalized.workspaceId]);
+        const index = sessions.value.findIndex((item) => item.id === normalized.id);
+        if (index >= 0) {
+          sessions.value[index] = normalized;
+        } else {
+          sessions.value.unshift(normalized);
+        }
+      } catch {
+        failed = true;
+      }
+    }
+
+    persistState();
+  } finally {
+    autoCloudSyncInFlight = false;
+  }
+
+  if (failed) {
+    notifyAutoCloudSyncFailure();
+  }
+  if (pendingAutoCloudSyncSessionIds.size > 0) {
+    armAutoCloudSyncTimer();
+  }
+}
+
+async function saveSessionSnapshotToCloud(
+  session: SessionRecord,
+  failureContext: string,
+): Promise<void> {
+  if (!canUseRemoteSync.value) {
+    return;
+  }
+
+  clearPendingAutoCloudSync(session.id);
+  try {
+    const saved = await saveSessionState(session as unknown as SessionState, authContext());
+    const normalized = normalizeRemoteSession(saved);
+    rememberWorkspaceIds([normalized.workspaceId]);
+    const index = sessions.value.findIndex((item) => item.id === normalized.id);
+    if (index >= 0) {
+      sessions.value[index] = normalized;
+    } else {
+      sessions.value.unshift(normalized);
+    }
+    if (activeSessionId.value === normalized.id) {
+      loadSession(normalized.id);
+    }
+    persistState();
+    await refreshCostSummary();
+  } catch (error) {
+    showFriendlyError(error, failureContext);
+  }
+}
+
+async function loadSessionsFromCloud(options?: { silent?: boolean } | Event): Promise<void> {
+  const silent = Boolean(options && 'silent' in options && options.silent);
+  if (!canUseRemoteSync.value) {
+    if (!silent) {
+      ElMessage.warning(FRIENDLY_CONFIGURATION_ERROR);
+    }
+    return;
+  }
+  if (!silent) {
+    cloudSyncing.value = true;
+  }
   try {
     const page = await listSessionStates(authContext(), {
       page: 1,
@@ -1894,17 +2327,24 @@ async function loadSessionsFromCloud(): Promise<void> {
     });
     if (Array.isArray(page.items) && page.items.length > 0) {
       sessions.value = page.items.map((item) => normalizeRemoteSession(item));
+      rememberWorkspaceIds(sessions.value.map((session) => session.workspaceId));
       const current =
         sessions.value.find((item) => item.id === activeSessionId.value) ?? sessions.value[0];
       loadSession(current.id);
       persistState();
     }
     await refreshCostSummary();
-    ElMessage.success('已同步记录');
+    if (!silent) {
+      ElMessage.success('已同步记录');
+    }
   } catch (error) {
-    showFriendlyError(error, '记录同步失败');
+    if (!silent) {
+      showFriendlyError(error, '记录同步失败');
+    }
   } finally {
-    cloudSyncing.value = false;
+    if (!silent) {
+      cloudSyncing.value = false;
+    }
   }
 }
 
@@ -1914,6 +2354,7 @@ async function syncActiveSessionToCloud(): Promise<void> {
     return;
   }
   syncCurrentSessionBranch();
+  clearPendingAutoCloudSync(activeSession.value.id);
   cloudSyncing.value = true;
   try {
     const saved = await saveSessionState(
@@ -2008,17 +2449,21 @@ function switchSession(sessionId: string): void {
     return;
   }
 
+  const previousSessionId = activeSessionId.value;
   syncCurrentSessionBranch();
   loadSession(sessionId);
   persistState();
+  scheduleAutoCloudSync(previousSessionId);
 }
 
 function createAndSwitchSession(): void {
+  const previousSessionId = activeSessionId.value;
   syncCurrentSessionBranch();
   const session = createSession();
   sessions.value.unshift(session);
   loadSession(session.id);
   persistState();
+  scheduleAutoCloudSync(previousSessionId);
 }
 
 function removeSession(sessionId: string): void {
@@ -2044,22 +2489,22 @@ async function toggleSessionPin(sessionId: string): Promise<void> {
   if (!session) {
     return;
   }
+  if (sessionId === activeSessionId.value) {
+    syncCurrentSessionBranch();
+  }
   session.pinned = !session.pinned;
   session.updatedAt = Date.now();
   persistState();
-  if (canUseRemoteSync.value) {
-    try {
-      await setSessionPinned(sessionId, session.pinned, authContext());
-    } catch (error) {
-      showFriendlyError(error, '置顶同步失败');
-    }
-  }
+  await saveSessionSnapshotToCloud(session, '置顶同步失败');
 }
 
 async function toggleSessionArchive(sessionId: string): Promise<void> {
   const session = getSession(sessionId);
   if (!session) {
     return;
+  }
+  if (sessionId === activeSessionId.value) {
+    syncCurrentSessionBranch();
   }
 
   session.archived = !session.archived;
@@ -2079,25 +2524,22 @@ async function toggleSessionArchive(sessionId: string): Promise<void> {
   }
 
   persistState();
-  if (canUseRemoteSync.value) {
-    try {
-      await setSessionArchived(sessionId, session.archived, authContext());
-    } catch (error) {
-      showFriendlyError(error, '归档同步失败');
-    }
-  }
+  await saveSessionSnapshotToCloud(session, '归档同步失败');
 }
 
 function createWorkspace(): void {
-  const value = workspaceDraft.value.trim().toLowerCase();
-  if (!value) {
+  const rawValue = workspaceDraft.value.trim();
+  if (!rawValue) {
     return;
   }
 
+  const value = normalizeWorkspaceId(rawValue);
+  rememberWorkspaceIds([value]);
   activeWorkspaceId.value = value;
   workspaceFilter.value = value;
   workspaceDraft.value = '';
   persistState();
+  scheduleAutoCloudSync();
 }
 
 function switchBranch(branchId: string): void {
@@ -2110,6 +2552,7 @@ function switchBranch(branchId: string): void {
   session.activeBranchId = branchId;
   loadSession(session.id);
   persistState();
+  scheduleAutoCloudSync(session.id);
 }
 
 function forkBranch(
@@ -2139,6 +2582,7 @@ function forkFromCurrent(): void {
   session.activeBranchId = branch.id;
   loadSession(session.id);
   persistState();
+  scheduleAutoCloudSync(session.id);
   ElMessage.success('已另存为新版本');
 }
 
@@ -2355,26 +2799,151 @@ async function copyMessage(content: string): Promise<void> {
   }
 }
 
-function parseCitation(citation: string): { source: string; chunk: string } | null {
-  const matched = citation.match(/source=([^,]+),\s*chunk=(.+)$/i);
-  if (!matched) {
+function normalizeCitationLike(raw: unknown): CitationLike | null {
+  if (typeof raw === 'string') {
+    const value = raw.trim();
+    return value ? value : null;
+  }
+  if (!raw || typeof raw !== 'object') {
+    return null;
+  }
+  const item = raw as Record<string, unknown>;
+  const fileName = stringValue(item.fileName) || stringValue(item.title);
+  const snippet = cleanCitationSnippet(stringValue(item.snippet) || stringValue(item.excerpt));
+  const pageNumber = numberValue(item.pageNumber);
+  const index = numberValue(item.index);
+  const debug =
+    item.debug && typeof item.debug === 'object' ? (item.debug as Record<string, unknown>) : undefined;
+  if (!fileName && !snippet) {
     return null;
   }
   return {
-    source: matched[1].trim(),
-    chunk: matched[2].trim(),
+    ...(index ? { index } : {}),
+    ...(fileName ? { fileName } : {}),
+    ...(pageNumber ? { pageNumber } : {}),
+    ...(snippet ? { snippet } : {}),
+    ...(debug ? { debug } : {}),
   };
 }
 
-function openCitation(citation: string): void {
-  const base = (import.meta.env.VITE_API_BASE as string | undefined) ?? '/api';
-  const target = parseCitation(citation);
-  const url = `${base}/ai/pdf/file/${encodeURIComponent(chatId.value)}${
-    target
-      ? `?source=${encodeURIComponent(target.source)}&chunk=${encodeURIComponent(target.chunk)}`
-      : ''
-  }`;
-  window.open(url, '_blank', 'noopener,noreferrer');
+function isCitationLike(value: CitationLike | null): value is CitationLike {
+  return value !== null;
+}
+
+function stringValue(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function numberValue(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === 'string' && value.trim()) {
+    const parsed = Number.parseInt(value.replace(/[^0-9]/g, ''), 10);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+  }
+  return null;
+}
+
+function cleanCitationSnippet(value: string): string {
+  return value
+    .replace(
+      /\b(?:tenant_id|chat_id|job_id|source|source_type|file_name|filename|fileName|chunk_index|page_number|pageNumber|page_index|distance)\s*[:=]\s*[^\s,，;；]+/gi,
+      ' ',
+    )
+    .replace(/\b(?:source|chunk|chunk_index)\s*=\s*[^\s,，;；]+/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function parseLegacyCitation(citation: string): CitationCard {
+  const matched = citation.match(/source=([^,，]+)[,，]\s*(?:chunk|chunk_index)=(.+)$/i);
+  if (matched) {
+    return {
+      index: 1,
+      fileName: matched[1].trim(),
+      debug: {
+        source: matched[1].trim(),
+        chunk: matched[2].trim(),
+      },
+    };
+  }
+  return {
+    index: 1,
+    fileName: cleanCitationSnippet(citation),
+  };
+}
+
+function citationCards(message: ChatMessage): CitationCard[] {
+  const cards = (message.citations ?? [])
+    .map((citation, citationIndex) => toCitationCard(citation, citationIndex + 1))
+    .filter((card): card is CitationCard => Boolean(card));
+  const seen = new Set<string>();
+  return cards.filter((card) => {
+    const fingerprint = `${card.fileName}|${card.pageNumber ?? ''}|${card.snippet ?? ''}`;
+    if (seen.has(fingerprint)) {
+      return false;
+    }
+    seen.add(fingerprint);
+    return true;
+  });
+}
+
+function toCitationCard(citation: CitationLike, fallbackIndex: number): CitationCard | null {
+  if (typeof citation === 'string') {
+    const card = parseLegacyCitation(citation);
+    card.index = fallbackIndex;
+    return card.fileName ? card : null;
+  }
+  const fileName = citation.fileName?.trim() || citation.title?.trim() || '未知文件';
+  const snippet = cleanCitationSnippet(citation.snippet || citation.excerpt || '');
+  return {
+    index: citation.index || fallbackIndex,
+    fileName,
+    pageNumber: citation.pageNumber ?? null,
+    snippet: snippet.length > 80 ? `${snippet.slice(0, 80)}...` : snippet,
+    debug: citation.debug,
+  };
+}
+
+function cleanAssistantContent(content: string): string {
+  return content
+    .replace(/^\s*(?:tenant_id|chat_id|job_id|source|source_type|file_name|filename|fileName|chunk_index|page_number|pageNumber|page_index|distance)\s*[:=].*$/gim, '')
+    .replace(/^\s*\[?\d*\]?\s*source\s*=.*(?:chunk|chunk_index)\s*=.*$/gim, '')
+    .replace(/source\s*=\s*[^,，\n]+[,，]\s*(?:chunk|chunk_index)\s*=\s*[^\s，,。；;]+/gi, '')
+    .replace(/\n{2,}(?:---\s*)?(引用来源|参考来源)[:：][\s\S]*$/i, '')
+    .trim();
+}
+
+function revokeCitationPreviewUrl(): void {
+  if (citationPreviewPdfUrl.value) {
+    URL.revokeObjectURL(citationPreviewPdfUrl.value.split('#')[0]);
+    citationPreviewPdfUrl.value = '';
+  }
+}
+
+function closeCitationPreview(): void {
+  revokeCitationPreviewUrl();
+  citationPreviewLoading.value = false;
+  citationPreviewError.value = '';
+}
+
+async function openCitation(citation: CitationCard): Promise<void> {
+  citationPreviewCard.value = citation;
+  citationPreviewVisible.value = true;
+  citationPreviewLoading.value = true;
+  citationPreviewError.value = '';
+  revokeCitationPreviewUrl();
+  try {
+    const blob = await fetchPdfFile(chatId.value, authContext());
+    const url = URL.createObjectURL(blob);
+    citationPreviewPdfUrl.value = citation.pageNumber ? `${url}#page=${citation.pageNumber}` : url;
+  } catch (error) {
+    citationPreviewError.value = friendlyErrorMessage(error, '参考来源预览失败');
+    showFriendlyError(error, '参考来源预览失败');
+  } finally {
+    citationPreviewLoading.value = false;
+  }
 }
 
 function findPreviousUserQuestion(index: number): string {
@@ -2446,6 +3015,7 @@ function clearConversation(): void {
   streamStatusDetail.value = '';
   syncCurrentSessionBranch();
   persistState();
+  scheduleAutoCloudSync();
 }
 
 async function handleLogin(): Promise<void> {
@@ -2554,10 +3124,10 @@ async function ask(question: string, appendUser: boolean): Promise<void> {
               traceSteps.value = done.trace;
             }
             if (done.answer?.trim()) {
-              messages.value[assistantIndex].content = done.answer;
+              messages.value[assistantIndex].content = cleanAssistantContent(done.answer);
             }
             messages.value[assistantIndex].citations = Array.isArray(done.citations)
-              ? done.citations.map((item) => String(item).trim()).filter(Boolean)
+              ? done.citations.map((item) => normalizeCitationLike(item)).filter(isCitationLike)
               : [];
             messages.value[assistantIndex].evidence = Array.isArray(done.evidence)
               ? done.evidence.map((item) => String(item).trim()).filter(Boolean)
@@ -2590,9 +3160,9 @@ async function ask(question: string, appendUser: boolean): Promise<void> {
         controller.signal,
       );
       traceSteps.value = result.trace ?? [];
-      messages.value[assistantIndex].content = result.answer || '系统没有返回内容';
+      messages.value[assistantIndex].content = cleanAssistantContent(result.answer || '系统没有返回内容');
       messages.value[assistantIndex].citations = Array.isArray(result.citations)
-        ? result.citations.map((item) => String(item).trim()).filter(Boolean)
+        ? result.citations.map((item) => normalizeCitationLike(item)).filter(isCitationLike)
         : [];
       messages.value[assistantIndex].evidence = Array.isArray(result.evidence)
         ? result.evidence.map((item) => String(item).trim()).filter(Boolean)
@@ -2625,6 +3195,7 @@ async function ask(question: string, appendUser: boolean): Promise<void> {
 
     syncCurrentSessionBranch();
     persistState();
+    scheduleAutoCloudSync();
     await scrollToBottom(true);
 
     if (
@@ -2677,8 +3248,13 @@ watch(
   { immediate: true },
 );
 
-watch([modelProfile, streaming, workspaceFilter, showArchivedSessions, sessionSearch], () => {
+watch([modelProfile, streaming], () => {
   syncCurrentSessionBranch();
+  persistState();
+  scheduleAutoCloudSync();
+});
+
+watch([workspaceFilter, showArchivedSessions, sessionSearch], () => {
   persistState();
 });
 
@@ -2750,6 +3326,9 @@ onMounted(() => {
 
   if (canUseRemoteSync.value) {
     void refreshCostSummary();
+    if (!hasBootstrapSessions) {
+      void loadSessionsFromCloud({ silent: true });
+    }
   }
 
   if (activeView.value === 'evaluation' && canUseRemoteSync.value) {
@@ -2774,26 +3353,72 @@ onBeforeUnmount(() => {
     window.clearTimeout(streamResetTimer);
     streamResetTimer = null;
   }
+
+  if (autoCloudSyncTimer) {
+    window.clearTimeout(autoCloudSyncTimer);
+    autoCloudSyncTimer = null;
+  }
+
+  revokeCitationPreviewUrl();
 });
 </script>
 
 <style scoped>
 .app-shell {
-  min-height: 100vh;
+  height: 100vh;
+  min-height: 0;
   display: grid;
   grid-template-columns: 340px minmax(0, 1fr);
+  overflow: hidden;
   color: var(--ui-text);
   background: var(--ui-bg);
   font-family: var(--ui-serif);
 }
 
 .sidebar {
+  height: 100vh;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   gap: 12px;
   padding: 14px;
+  overflow: hidden;
   border-right: 1px solid var(--ui-border);
   background: var(--ui-card);
+}
+
+.drop-overlay {
+  position: fixed;
+  inset: 12px;
+  z-index: 1000;
+  display: grid;
+  place-items: center;
+  border: 1px dashed var(--ui-accent);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--ui-card) 88%, transparent);
+  pointer-events: none;
+}
+
+.drop-overlay div {
+  display: grid;
+  gap: 8px;
+  min-width: min(360px, calc(100vw - 48px));
+  padding: 22px 24px;
+  border: 1px solid var(--ui-border);
+  border-radius: 10px;
+  background: var(--ui-card);
+  text-align: center;
+  box-shadow: 0 24px 70px rgba(15, 23, 42, 0.16);
+}
+
+.drop-overlay strong {
+  font-size: 18px;
+  color: var(--ui-text);
+}
+
+.drop-overlay span {
+  font-size: 13px;
+  color: var(--ui-muted);
 }
 
 .brand-block {
@@ -2846,6 +3471,19 @@ h1 {
 .sidebar-footer {
   margin-top: auto;
   padding-top: 4px;
+  display: grid;
+  gap: 10px;
+}
+
+.sidebar-usage-card {
+  width: 100%;
+  border: 1px solid var(--ui-border);
+  border-radius: 8px;
+  padding: 12px 13px;
+  background: var(--ui-panel);
+  color: var(--ui-muted);
+  font-size: 12px;
+  line-height: 1.45;
 }
 
 .settings-link {
@@ -3181,18 +3819,6 @@ h1 {
   background: var(--ui-panel);
 }
 
-.settings-help {
-  display: grid;
-  gap: 6px;
-}
-
-.settings-help p {
-  margin: 0;
-  color: var(--ui-muted);
-  font-size: 13px;
-  line-height: 1.55;
-}
-
 .developer-tools {
   display: grid;
   gap: 12px;
@@ -3287,9 +3913,11 @@ h1 {
 }
 
 .workspace {
-  min-height: 100vh;
+  height: 100vh;
+  min-height: 0;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
 
 .workspace-head {
@@ -3348,13 +3976,14 @@ h2 {
 }
 
 .messages {
+  min-height: 0;
   flex: 1;
   overflow-y: auto;
   padding: 14px 0;
 }
 
 .hydration-skeleton {
-  max-width: 930px;
+  max-width: 1040px;
   margin: 0 auto;
   padding: 0 20px;
   display: grid;
@@ -3396,7 +4025,7 @@ h2 {
 }
 
 .welcome-block {
-  max-width: 720px;
+  max-width: 840px;
   margin: 0 auto 18px;
   padding: 0 20px;
   text-align: center;
@@ -3404,9 +4033,10 @@ h2 {
 
 .welcome-block h3 {
   margin: 0;
-  font-size: 27px;
+  font-size: 34px;
   line-height: 1.2;
-  font-weight: 650;
+  font-weight: 750;
+  color: var(--ui-text);
 }
 
 .welcome-block p {
@@ -3417,22 +4047,45 @@ h2 {
 }
 
 .welcome-core {
-  margin-top: 22px;
+  width: min(100%, 620px);
+  min-height: 156px;
+  margin: 22px auto 0;
+  border: 1px solid var(--ui-border);
+  border-radius: 8px;
+  padding: 22px;
+  background: color-mix(in srgb, var(--ui-card) 88%, transparent);
   display: grid;
   justify-items: center;
-  gap: 7px;
+  align-content: center;
+  gap: 10px;
+  box-shadow: 0 18px 40px rgba(27, 54, 93, 0.05);
+}
+
+.welcome-file-badge {
+  width: 42px;
+  height: 42px;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  background: var(--ui-accent-tint);
+  color: var(--ui-accent);
+  font-size: 19px;
 }
 
 .welcome-upload-button {
-  min-width: 178px;
+  min-width: 184px;
   border: 1px solid var(--ui-accent);
   border-radius: 8px;
-  padding: 11px 18px;
+  padding: 12px 20px;
   background: var(--ui-accent);
   color: #ffffff;
   font-size: 14px;
   font-weight: 650;
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
   box-shadow: 0 14px 34px rgba(32, 61, 92, 0.14);
 }
 
@@ -3455,26 +4108,35 @@ h2 {
 }
 
 .welcome-core small,
-.welcome-core span {
+.welcome-divider span {
   font-size: 12px;
   line-height: 1.5;
   color: var(--ui-muted);
 }
 
-.welcome-prompts {
-  margin-top: 18px;
+.welcome-divider {
+  width: min(100%, 440px);
+  margin: 20px auto 0;
   display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-  justify-content: center;
   align-items: center;
+  gap: 16px;
+  color: var(--ui-muted);
 }
 
-.welcome-prompts p {
-  flex-basis: 100%;
-  margin: 0 0 2px;
-  font-size: 13px;
-  color: var(--ui-muted);
+.welcome-divider::before,
+.welcome-divider::after {
+  content: "";
+  height: 1px;
+  flex: 1;
+  background: var(--ui-border);
+}
+
+.welcome-prompts {
+  width: min(100%, 620px);
+  margin: 20px auto 0;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
 }
 
 .welcome-prompts button,
@@ -3483,10 +4145,18 @@ h2 {
   background: var(--ui-card);
   color: var(--ui-text);
   border-radius: 6px;
-  padding: 7px 11px;
-  font-size: 13px;
+  padding: 8px 12px;
+  font-size: 14px;
   font-weight: 500;
   cursor: pointer;
+}
+
+.welcome-prompts button {
+  min-height: 38px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--ui-card) 92%, transparent);
 }
 
 .virtual-spacer {
@@ -3495,7 +4165,7 @@ h2 {
 }
 
 .message-row {
-  max-width: 930px;
+  max-width: 1040px;
   margin: 0 auto;
   padding: 0 20px 18px;
   display: block;
@@ -3515,6 +4185,7 @@ h2 {
 }
 
 .message-row.user .bubble-wrap {
+  width: min(100%, 820px);
   align-items: flex-end;
 }
 
@@ -3533,11 +4204,11 @@ h2 {
 }
 
 .bubble {
-  width: min(100%, 860px);
+  width: min(100%, 960px);
   border-radius: 8px;
   border: 1px solid var(--ui-border);
   background: var(--ui-card);
-  padding: 13px 15px;
+  padding: 15px 17px;
 }
 
 .message-row.assistant .bubble {
@@ -3574,7 +4245,15 @@ h2 {
 
 .edit-box {
   display: grid;
-  gap: 8px;
+  gap: 10px;
+  width: min(76vw, 760px);
+  max-width: 100%;
+}
+
+.edit-box :deep(.el-textarea__inner) {
+  min-height: 144px !important;
+  line-height: 1.65;
+  padding: 10px 12px;
 }
 
 .edit-actions {
@@ -3587,40 +4266,7 @@ h2 {
   margin: 0;
   white-space: pre-wrap;
   line-height: 1.7;
-  font-size: 14px;
-}
-
-.answer-module-panel {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-bottom: 10px;
-}
-
-.answer-module-label {
-  margin: 0 0 7px;
-  color: var(--ui-muted);
-  font-size: 12px;
-  font-weight: 650;
-}
-
-.answer-module-panel span {
-  border: 1px solid var(--ui-border);
-  border-radius: 6px;
-  padding: 4px 9px;
-  background: var(--ui-accent-tint);
-  color: var(--ui-accent);
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.answer-section-title {
-  margin: 0 0 8px;
-  color: var(--ui-text);
   font-size: 15px;
-  font-weight: 650;
-  border-left: 2px solid var(--ui-accent);
-  padding-left: 9px;
 }
 
 .message-actions {
@@ -3629,36 +4275,128 @@ h2 {
   flex-wrap: wrap;
 }
 
-.citation-panel,
-.evidence-panel {
-  margin-top: 10px;
+.citation-panel {
+  margin-top: 12px;
   border: 1px solid var(--ui-border);
   border-radius: 8px;
-  padding: 8px 10px;
+  padding: 10px 12px;
   background: var(--ui-panel);
 }
 
 .citation-title {
-  margin: 0 0 6px;
-  font-size: 12px;
+  margin: 0 0 8px;
+  font-size: 13px;
   color: var(--ui-muted);
 }
 
-.citation-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
+.citation-card-list {
+  display: grid;
+  gap: 8px;
 }
 
-.citation-chip {
+.citation-card {
+  width: 100%;
   border: 1px solid var(--ui-border);
   background: var(--ui-card);
   color: var(--ui-text);
-  border-radius: 6px;
-  padding: 4px 10px;
-  font-size: 12px;
+  border-radius: 8px;
+  padding: 11px 12px;
   cursor: pointer;
   text-align: left;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px;
+}
+
+.citation-card:hover {
+  border-color: var(--ui-accent);
+}
+
+.citation-card-number {
+  color: var(--ui-accent);
+  font-weight: 700;
+  font-size: 13px;
+}
+
+.citation-card-main {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.citation-card-main strong {
+  font-size: 14px;
+  line-height: 1.45;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.citation-card-main small {
+  color: var(--ui-muted);
+  font-size: 13px;
+}
+
+.citation-card-main span {
+  color: var(--ui-muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.citation-preview {
+  display: grid;
+  gap: 12px;
+}
+
+.citation-preview-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.citation-preview-meta strong {
+  min-width: 0;
+  font-size: 15px;
+  line-height: 1.45;
+}
+
+.citation-preview-meta small {
+  color: var(--ui-muted);
+  font-size: 13px;
+}
+
+.citation-preview-snippet {
+  margin: 0;
+  border: 1px solid var(--ui-border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: var(--ui-panel);
+  color: var(--ui-text);
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+.citation-preview-state {
+  border: 1px solid var(--ui-border);
+  border-radius: 8px;
+  padding: 18px;
+  background: var(--ui-panel);
+  color: var(--ui-muted);
+  font-size: 14px;
+  text-align: center;
+}
+
+.citation-preview-state.error {
+  color: #9f3a38;
+}
+
+.citation-preview-frame {
+  width: 100%;
+  height: min(68vh, 680px);
+  border: 1px solid var(--ui-border);
+  border-radius: 8px;
+  background: var(--ui-panel);
 }
 
 .evidence-panel ul {
@@ -3668,6 +4406,31 @@ h2 {
   gap: 4px;
   color: var(--ui-muted);
   font-size: 12px;
+}
+
+.follow-up-suggestions {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--ui-border-soft);
+  color: var(--ui-muted);
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+.follow-up-suggestions p {
+  margin: 0;
+}
+
+.follow-up-suggestions ol {
+  margin: 6px 0;
+  padding-left: 20px;
+  display: grid;
+  gap: 3px;
+}
+
+.follow-up-suggestions li {
+  padding-left: 2px;
+  color: var(--ui-text);
 }
 
 /* Processing timeline */
@@ -3682,7 +4445,27 @@ h2 {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 12px;
+  cursor: pointer;
+  list-style: none;
+}
+.trace-timeline-panel[open] .trace-timeline-header {
   margin-bottom: 10px;
+}
+.trace-timeline-header::-webkit-details-marker {
+  display: none;
+}
+.trace-timeline-header::marker {
+  content: "";
+}
+.trace-timeline-title::before {
+  content: "▸";
+  display: inline-block;
+  margin-right: 6px;
+  color: var(--ui-muted);
+}
+.trace-timeline-panel[open] .trace-timeline-title::before {
+  transform: rotate(90deg);
 }
 .trace-timeline-title {
   font-size: 12px;
@@ -3809,52 +4592,8 @@ h2 {
   cursor: pointer;
   padding: 2px 0;
 }
-.trace-retrieval-lanes {
-  margin-top: 8px;
-  padding: 8px;
-  border-radius: 8px;
-  background: var(--ui-card);
-  border: 1px solid var(--ui-border);
-}
-.retrieval-bar {
-  display: flex;
-  border-radius: 6px;
-  overflow: hidden;
-  margin-top: 6px;
-  height: 24px;
-  font-size: 10px;
-  font-weight: 700;
-}
-.retrieval-lane {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--ui-card);
-  min-width: 0;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-  padding: 0 4px;
-  transition: filter 0.2s ease;
-}
-.retrieval-lane:hover {
-  filter: brightness(1.15);
-}
-.retrieval-lane.vector {
-  background: var(--ui-accent);
-}
-.retrieval-lane.keyword {
-  background: var(--ui-accent-light);
-}
-.retrieval-lane.graph {
-  background: var(--ui-muted);
-}
-.retrieval-lane.web {
-  background: #8b4513;
-}
-
 .thinking {
-  max-width: 930px;
+  max-width: 1040px;
   margin: 0 auto;
   padding: 0 20px 10px 70px;
   color: var(--ui-muted);
@@ -4052,7 +4791,7 @@ h2 {
 }
 
 .composer {
-  max-width: 930px;
+  max-width: 1040px;
   margin: 0 auto;
   border: 1px solid var(--ui-border);
   border-radius: 8px;
@@ -4131,7 +4870,7 @@ h2 {
 
 .markdown :deep(p) {
   margin: 0 0 10px;
-  font-size: 14px;
+  font-size: 15px;
   line-height: 1.72;
 }
 
@@ -4143,6 +4882,8 @@ h2 {
 .markdown :deep(ol) {
   margin: 0 0 10px;
   padding-left: 20px;
+  font-size: 15px;
+  line-height: 1.72;
 }
 
 .markdown :deep(code:not(.hljs)) {
@@ -4282,11 +5023,22 @@ h2 {
 @media (max-width: 980px) {
   .app-shell {
     grid-template-columns: 1fr;
+    height: auto;
+    min-height: 100vh;
+    overflow: auto;
   }
 
   .sidebar {
+    height: auto;
+    overflow: visible;
     border-right: none;
     border-bottom: 1px solid var(--ui-border);
+  }
+
+  .workspace {
+    height: auto;
+    min-height: 0;
+    overflow: visible;
   }
 
   .session-list,
@@ -4340,6 +5092,10 @@ h2 {
 
   .message-row {
     display: block;
+  }
+
+  .welcome-prompts {
+    grid-template-columns: 1fr;
   }
 
   .thinking {

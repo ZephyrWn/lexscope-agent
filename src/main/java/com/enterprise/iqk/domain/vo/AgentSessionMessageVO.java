@@ -12,7 +12,7 @@ public class AgentSessionMessageVO {
     private String content;
     private Long createdAt;
     private String state;
-    private List<String> citations;
+    private List<Object> citations;
     private List<String> evidence;
     private String taskId;
     private String traceId;

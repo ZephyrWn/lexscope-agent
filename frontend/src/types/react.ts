@@ -22,12 +22,24 @@ export interface ReactTraceStep {
   observation?: unknown;
 }
 
+export interface CitationSource {
+  index?: number;
+  fileName?: string;
+  title?: string;
+  pageNumber?: number | null;
+  snippet?: string;
+  excerpt?: string;
+  debug?: Record<string, unknown>;
+}
+
+export type CitationLike = string | CitationSource;
+
 export interface ReactChatResponse {
   ok: number;
   msg: string;
   chatId: string;
   answer: string;
-  citations?: string[];
+  citations?: CitationLike[];
   evidence?: string[];
   routeProfile?: string;
   routeReason?: string;
@@ -60,7 +72,7 @@ export interface SessionMessage {
   content: string;
   createdAt: number;
   state?: 'pending' | 'streaming' | 'done' | 'error' | 'stopped';
-  citations?: string[];
+  citations?: CitationLike[];
   evidence?: string[];
 }
 
@@ -197,7 +209,7 @@ export interface EvalResult {
   status: string;
   question: string;
   answer: string;
-  citations: string[];
+  citations: CitationLike[];
   evidence: string[];
   retrievalHit: number;
   citationCoverage: number;

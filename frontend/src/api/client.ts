@@ -20,6 +20,7 @@ import type {
 } from '../types/react';
 
 const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined) ?? '/api';
+const DEFAULT_UPLOAD_API_KEY = 'dev-admin-key-2026';
 
 function resolveApi(path: string): string {
   if (path.startsWith('http://') || path.startsWith('https://')) {
@@ -138,39 +139,54 @@ interface ParsedEvent {
   payload: unknown;
 }
 
+const STREAM_EVENTS = new Set<ReactStreamEvent>(['trace', 'token', 'done', 'error']);
+
+function toStreamEvent(value: string): ReactStreamEvent | null {
+  const normalized = value.trim();
+  return STREAM_EVENTS.has(normalized as ReactStreamEvent)
+    ? (normalized as ReactStreamEvent)
+    : null;
+}
+
 function parseSseChunk(rawChunk: string): ParsedEvent | null {
   const normalized = rawChunk.replace(/\r/g, '');
   const lines = normalized.split('\n');
   let eventName: ReactStreamEvent = 'token';
   const dataLines: string[] = [];
   for (const line of lines) {
-    if (!line.trim()) {
+    const trimmedLine = line.trimStart();
+    if (!trimmedLine.trim()) {
       continue;
     }
-    if (line.startsWith('data:event:')) {
-      const parsed = line.slice('data:event:'.length).trim();
-      if (parsed === 'trace' || parsed === 'token' || parsed === 'done' || parsed === 'error') {
+    if (trimmedLine.startsWith('data:event:')) {
+      const parsed = toStreamEvent(trimmedLine.slice('data:event:'.length));
+      if (parsed) {
         eventName = parsed;
       }
       continue;
     }
-    if (line.startsWith('data:data:')) {
-      const payload = line.slice('data:data:'.length).trim();
+    if (trimmedLine.startsWith('data:data:')) {
+      const payload = trimmedLine.slice('data:data:'.length).trim();
       if (payload) {
         dataLines.push(payload);
       }
       continue;
     }
-    if (line.startsWith('event:')) {
-      const parsed = line.slice('event:'.length).trim();
-      if (parsed === 'trace' || parsed === 'token' || parsed === 'done' || parsed === 'error') {
+    if (trimmedLine.startsWith('event:')) {
+      const parsed = toStreamEvent(trimmedLine.slice('event:'.length));
+      if (parsed) {
         eventName = parsed;
       }
       continue;
     }
-    if (line.startsWith('data:')) {
-      const payload = line.slice('data:'.length).trim();
-      if (payload) {
+    if (trimmedLine.startsWith('data:')) {
+      const payload = trimmedLine.slice('data:'.length).trim();
+      const embeddedEvent = toStreamEvent(payload);
+      if (embeddedEvent && dataLines.length === 0) {
+        eventName = embeddedEvent;
+        continue;
+      }
+      if (payload || dataLines.length > 0) {
         dataLines.push(payload);
       }
     }
@@ -213,6 +229,20 @@ function takeNextChunk(input: string): { chunk: string; rest: string } | null {
   };
 }
 
+function streamInitErrorMessage(payload: unknown): string {
+  if (payload && typeof payload === 'object') {
+    const record = payload as Record<string, unknown>;
+    const msg = record.msg ?? record.message ?? record.error ?? record.detail;
+    if (typeof msg === 'string' && msg.trim()) {
+      return msg.trim();
+    }
+  }
+  if (typeof payload === 'string' && payload.trim()) {
+    return payload.trim();
+  }
+  return 'stream init failed';
+}
+
 export async function streamReactChat(
   request: ReactChatRequest,
   auth: AuthContext | undefined,
@@ -231,8 +261,8 @@ export async function streamReactChat(
   });
 
   if (!response.ok) {
-    const errPayload = await parseJsonSafely<{ msg?: string }>(response);
-    throw formatHttpError(response.status, errPayload?.msg ?? 'stream init failed');
+    const errPayload = await parseJsonSafely<unknown>(response);
+    throw formatHttpError(response.status, streamInitErrorMessage(errPayload));
   }
   if (!response.body) {
     throw new Error('SSE stream body is empty');
@@ -280,10 +310,14 @@ export async function uploadLegalFile(
 ): Promise<{ ok: number; msg: string; job?: { sourceName?: string; status?: string } }> {
   const form = new FormData();
   form.append('file', file);
+  const uploadAuth: AuthContext = {
+    apiKey: DEFAULT_UPLOAD_API_KEY,
+    tenantId: auth?.tenantId || 'public',
+  };
   const response = await fetch(resolveApi(`/ai/pdf/upload/${encodeURIComponent(chatId)}`), {
     method: 'POST',
     headers: {
-      ...buildAuthHeaders(auth),
+      ...buildAuthHeaders(uploadAuth),
       'X-Idempotency-Key': `frontend-${chatId}-${file.size}-${file.lastModified}`,
     },
     body: form,
@@ -297,6 +331,22 @@ export async function uploadLegalFile(
     throw formatHttpError(response.status, payload?.msg ?? 'upload failed');
   }
   return payload;
+}
+
+export async function fetchPdfFile(chatId: string, auth?: AuthContext): Promise<Blob> {
+  const response = await fetch(resolveApi(`/ai/pdf/file/${encodeURIComponent(chatId)}`), {
+    method: 'GET',
+    headers: buildAuthHeaders(auth),
+  });
+  if (!response.ok) {
+    const payload = await parseJsonSafely<{ msg?: string; message?: string; error?: string }>(response);
+    throw formatHttpError(
+      response.status,
+      payload?.msg ?? payload?.message ?? payload?.error ?? 'pdf preview failed',
+    );
+  }
+  const blob = await response.blob();
+  return blob.type === 'application/pdf' ? blob : new Blob([blob], { type: 'application/pdf' });
 }
 
 interface PagedResult<T> {

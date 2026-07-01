@@ -1,15 +1,43 @@
-# Changelog
+# 变更日志
 
-All notable changes to this project are documented in this file.
+本文档记录 LexScope Agent 的重要项目变更。
 
-## [Unreleased]
+## [未发布]
 
-### Added
+- 2026-07-01：补充会话自动云端同步。前端在本地即时保存的基础上，对会话内容、分支和模型配置变化进行防抖静默上云；流式回答结束后保存最终快照，首次本地无缓存时静默读取云端记录，手动同步按钮保留为兜底。
+- 2026-07-01：修复分组丢失和归档同步失败。前端会单独持久化用户创建过的分组，空分组切回默认后仍保留；置顶和归档同步改为保存完整会话快照，避免本地新记录尚未上云时点更新返回 `session not found`。
+- 2026-07-01：微调聊天消息编辑和处理过程展示。用户消息操作按钮从“编辑后重发”简化为“编辑”，编辑输入区横向加宽；Agent 处理过程默认收起，只展示步骤数和耗时摘要，点击后再展开详细轨迹。
+- 2026-07-01：修复参考来源点击预览的鉴权问题。前端不再用 `window.open` 裸打开 `/ai/pdf/file/{chatId}`，改为通过统一 API 客户端携带鉴权头获取 PDF blob，并在页面内弹窗展示文件、页码和片段摘要；后端 PDF 文件接口鉴权保持不变。
+- 2026-07-01：继续优化 PDF/RAG 引用展示与阅读体验。后端和前端都会清洗引用摘要中的 `tenant_id`、`chunk_index`、`distance` 等调试字段；ReAct trace 移除固定“资料匹配 40/25/20/15”静态条；聊天正文、按钮和引用卡片字号略微放大，消息阅读区更宽。
+- 2026-07-01：统一项目持续更新文档的语言风格。`docs/CODEX_HANDOFF.md`、`docs/index.md` 和 `CHANGELOG.md` 改为中文表达，维护文档默认使用中文，必要技术名词、命令、路径和接口名保留英文。
+- 2026-07-01：优化 PDF/RAG 问答引用展示。后端 RAG 结果改为结构化引用对象，用户可见字段只保留编号、文件名、页码和摘要，调试字段放入 `debug`；前端统一显示“参考来源”卡片，不再重复展示正文 footer、引用 chips 和相关依据列表。
+- 2026-07-01：清理 RAG 答案正文中的原始调试引用。模型提示不再要求结尾生成引用来源清单，前端和后端都会去掉 `source=...`、`chunk=...`、`chunk_index=...` 等原始字段。
+- 2026-07-01：修复实时输出体验的本地开发差异。Vite 代理现在与 8088 Nginx 演示代理保持一致，会清理旧 Authorization 和 Origin 并补默认演示密钥，避免开发模式下 `/api/ai/react/` 仍被 403/CORS 拦截。
+- 2026-07-01：增强前端 SSE 解析和错误提示。实时输出初始化失败时会保留后端 `msg`、`message`、`error` 或 `detail`，页面可区分权限、跨域、预算保护、模型超时和普通流式连接失败。
+- 2026-07-01：优化消息编辑和侧栏用量展示。“编辑后重发”输入框改为更高的自适应编辑区；左侧栏只显示本月用量，不再显示默认预算金额。
+- 2026-07-01：新增 `docs/CODEX_HANDOFF.md`，记录新开 Codex 窗口的项目上下文、三份文档同步规则、固定 Git 提交策略和可复用提示词；文档首页增加入口。
+- 2026-07-01：强化 Codex 维护约定。每次项目改进后必须同步 `ARCHITECTURE.md`、`CHANGELOG.md`、`INTERVIEW_NOTES.md`，并在最终回复输出固定格式变更报告。
+- 2026-07-01：为 PDF 上传增加 8088 网关兜底配置。上传专用代理会清空浏览器残留的旧 Authorization，并统一补充本地演示上传密钥与 public 使用范围，避免页面缓存旧凭证时仍然出现 403。
+- 2026-07-01：继续修复浏览器 PDF 上传 403。定位到浏览器上传会自动带 `Origin: http://127.0.0.1:8088`，后端 CORS 判断返回 `Invalid CORS request`；上传专用代理现在会清空 Origin，让同源页面上传不再被误判为跨域请求。
+- 2026-07-01：修复资料导入后无法流式回答的问题。`/api/ai/react/` 问答接口现在也通过 8088 专用代理清空旧 Authorization 和 Origin，并使用本地演示密钥，避免聊天请求被同样的 403/CORS 问题拦截；聊天输入框改为 3 到 10 行自动增高，长问题不用挤在固定小框里。
+- 2026-07-01：修复长回答滚动时左侧栏跟随页面变化的问题。桌面端外层布局改为固定视口高度，左侧栏保持固定，右侧聊天消息区独立滚动；移动端继续保留自然上下滚动布局。
+- 2026-07-01：取消法律助手回答顶部的快捷标签条，不再显示“问题概括、争议焦点、相关依据、参考案例、初步分析、引用来源、风险提示”等导航按钮；改为在回答结束后用文字追加“延伸提问建议”，根据合同、证据、诉讼、风险、租赁、房屋信息等关键词生成 2-4 个具体追问。
+- 2026-07-01：增加整页拖拽上传资料能力。用户把 PDF 或 TXT 拖到页面即可复用现有上传/读取逻辑，Word 仍提示先另存为 PDF，未新增后端接口。
+
+### 新增
 - 新增项目维护约定：后续每次代码修改完成后，都需要同步输出固定格式的“变更报告”，说明目标、改动文件、具体改动、实现效果、验证方式、面试表达、风险与后续优化。
 - 新增 `ARCHITECTURE.md`，用普通语言记录系统整体流程、前后端模块作用、数据流和部署结构，方便后续继续维护项目上下文。
 - 新增 `INTERVIEW_NOTES.md`，沉淀项目亮点、难点、优化点、可复述表达和后续改进方向，服务简历和面试讲述。
 
-### Changed
+### 变更
+- 将 Nginx 前端代理上传限制提升到 100MB，与后端 multipart 限制保持一致，避免真实 PDF 被默认 1MB 限制拦截。
+- 上传失败提示改为按真实原因区分：文件过大、PDF 格式不正确、权限校验失败等，不再全部显示“未完成登录或服务配置”。
+- 上传资料接口现在在前端 API 层固定使用项目内置上传密钥和默认使用范围，不再受设置面板里旧 token、旧 API Key 或模型服务 Key 的影响，避免浏览器残留凭证导致 403。
+- 默认服务密钥不再读取浏览器旧缓存，页面启动时直接使用项目内置演示密钥；上传资料遇到 401/403 等配置错误时会自动恢复默认密钥并重试一次，减少“明明默认配置却不能上传”的情况。
+- 移除设置面板底部“关于系统 / 使用说明”卡片，避免设置弹窗再次出现说明书式内容。
+- 进一步放大法律智能问答引导页的标题、上传卡片、上传按钮和快捷问题按钮；同时去掉三枚快捷问题前的小图标，让底部入口更干净。
+- 将侧栏“本月用量 / 预算”从设置的高级区域移到主界面设置按钮上方，普通用户不用打开设置也能看到用量概览。
+- 按参考图优化法律智能问答引导页：上传入口改为浅边框居中卡片，增加文件图标、上传按钮图标、分隔线和一行三枚快捷问题按钮，去掉多余说明感。
 - 将法律智能问答首屏从“三步说明卡片 + 多个能力入口”改成轻量聊天引导：只保留标题、一句短说明、上传法律资料按钮、格式提示、直接输入问题入口和 3 个快捷问题。
 - 默认欢迎语缩短为“请上传法律资料，或直接输入你想分析的问题。”；问题概括、争议焦点、相关依据等结果模块不再在初始空页面提前展示，只在真实回答中出现。
 - 新增前端上传入口调用封装，首屏“上传法律资料”按钮复用已有 `/ai/pdf/upload/{chatId}` 上传接口；TXT 会读取到输入框辅助提问，Word 文件给出另存 PDF 的友好提示。
@@ -45,41 +73,41 @@ All notable changes to this project are documented in this file.
 - 回答区域统一使用“问题概括、争议焦点、相关依据、参考案例、初步分析、引用来源、风险提示”等更贴合法律场景的中文模块。
 - 前端视觉从偏工程控制台的冷色和技术术语，调整为更清晰的现代应用风格：系统无衬线字体、细边框、浅灰背景、低噪声卡片，并保留少量墨蓝强调。
 
-### Notes
+### 说明
 - 本轮前端产品化与风格调整未改后端接口、数据库结构或核心业务逻辑。
 
 ## [1.0.0] - 2026-04-28
 
-### Added
-- Redis Stream ingestion queue with DLQ, retry re-enqueue, and multi-worker concurrency.
-- RabbitMQ ingestion queue backend with dedicated queue/DLX/DLQ declarations and concurrent listeners.
-- pgvector formal migration and rollback script.
-- API key lifecycle (issue/rotate/revoke/expiry) and JWT refresh token flow.
-- Permission-granular security routing and audit log retention scheduler.
-- RAG chunking, reranking, multi-document fusion, and answer citations.
-- Observability stack templates (Prometheus, Loki, Tempo, Alertmanager, Promtail).
-- OpenAPI integration, load testing scripts, large nightly evaluation pipeline.
-- ReAct agent endpoints (`/ai/react/chat`, `/ai/react/chat/stream`) with trace payload and SSE events.
-- Vue3 + TypeScript + Element Plus frontend console with Markdown rendering, dark mode, responsive layout, and ReAct trace view.
-- Nginx reverse-proxy web service in Docker Compose for one-command full-stack startup.
-- Development demo admin API key seed (`dev-admin-key-2026`) for local authentication walkthrough.
-- Fast Maven test lane plus separate `integration-test` profile for container-backed smoke tests.
-- Stream-based SHA-256 hashing utility and PDF safety scanner tests.
-- Flyway migration `V9` for tenant isolation on `conversation` and `ingestion_job`.
-- PostgreSQL pgvector tenant-aware metadata indexes (`tenant_id`, `tenant_id + chat_id`).
+### 新增
+- 新增 Redis Stream 入库队列，支持 DLQ、失败重入队和多 worker 并发。
+- 新增 RabbitMQ 入库队列后端，包含专用队列、DLX/DLQ 声明和并发监听器。
+- 新增 pgvector 正式迁移脚本和回滚脚本。
+- 新增 API Key 生命周期管理，包括签发、轮换、撤销、过期，以及 JWT refresh token 流程。
+- 新增细粒度权限路由和审计日志保留调度器。
+- 新增 RAG 分块、重排、多文档融合和回答引用能力。
+- 新增可观测性栈模板，包括 Prometheus、Loki、Tempo、Alertmanager、Promtail。
+- 新增 OpenAPI 集成、压测脚本和夜间大规模评测流水线。
+- 新增 ReAct Agent 接口 `/ai/react/chat`、`/ai/react/chat/stream`，支持 trace payload 和 SSE 事件。
+- 新增 Vue3 + TypeScript + Element Plus 前端控制台，支持 Markdown 渲染、深色模式、响应式布局和 ReAct trace 视图。
+- 新增 Docker Compose 中的 Nginx 反向代理 web 服务，实现一条命令启动全栈。
+- 新增本地演示管理员 API Key 种子 `dev-admin-key-2026`，方便本地鉴权演示。
+- 新增快速 Maven 测试通道和独立 `integration-test` profile，用于容器化 smoke test。
+- 新增基于流的 SHA-256 哈希工具和 PDF 安全扫描测试。
+- 新增 Flyway 迁移 `V9`，为 `conversation` 和 `ingestion_job` 增加租户隔离。
+- 新增 PostgreSQL pgvector 租户感知 metadata 索引，包括 `tenant_id`、`tenant_id + chat_id`。
 
-### Changed
-- PDF ingestion switched from DB polling loop to queue-driven worker model.
-- API key rotation now rotates by stable `keyName` (active key semantics) instead of generating ad-hoc names.
-- Vector store backend defaults tuned toward pgvector production path.
-- Project naming and runtime identifiers aligned to enterprise platform terminology (`knowledgeops-agent`).
-- README and docs upgraded to enterprise deployment/architecture focused documentation set.
-- Application security now defaults to enabled outside the development profile.
-- Automatic ingestion idempotency keys now use file content hash instead of filename and size.
-- PDF safety scanning now reads only the file header and validates PDF magic bytes before ingestion.
-- Frontend production build now separates Vue, Element Plus, and Markdown/highlight dependencies into vendor chunks.
-- Chat history, chat memory, ingestion job APIs, and PDF download/list operations are now tenant-scoped (`tenant_id`) to prevent cross-tenant data bleed.
-- RAG retrieval filter is now tenant-aware (`tenant_id && chat_id`) and ingestion metadata includes `tenant_id`.
-- ReAct stream endpoint now emits true model token streaming instead of synthetic answer chunk splitting.
-- Cost budget update endpoint now falls back to request tenant header when `tenantId` is omitted in payload.
-- Ingestion operational metrics now include tenant tags for submitted/finished/duration series.
+### 变更
+- PDF 入库从数据库轮询循环切换为队列驱动 worker 模型。
+- API Key 轮换改为基于稳定 `keyName` 的 active key 语义，不再生成临时名称。
+- 向量存储后端默认配置调整为更贴近 pgvector 生产路径。
+- 项目命名和运行时标识统一为企业平台术语 `knowledgeops-agent`。
+- README 和 docs 升级为偏企业部署与架构说明的文档集。
+- 应用安全在非 development profile 下默认启用。
+- 自动入库幂等键改为使用文件内容哈希，不再依赖文件名和大小。
+- PDF 安全扫描改为只读取文件头，并在入库前校验 PDF magic bytes。
+- 前端生产构建将 Vue、Element Plus、Markdown/highlight 依赖拆分为 vendor chunks。
+- 聊天历史、聊天记忆、入库任务接口以及 PDF 下载/列表操作都改为租户作用域，防止跨租户数据泄露。
+- RAG 检索过滤条件改为租户感知的 `tenant_id && chat_id`，入库 metadata 增加 `tenant_id`。
+- ReAct 流式接口改为输出真实模型 token streaming，不再用合成答案分块模拟。
+- 成本预算更新接口在 payload 省略 `tenantId` 时回退使用请求租户 header。
+- 入库运维指标为 submitted、finished、duration 系列增加 tenant 标签。

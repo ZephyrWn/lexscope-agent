@@ -12,7 +12,7 @@ public class ReactChatResponseVO {
     private String msg;
     private String chatId;
     private String answer;
-    private List<String> citations;
+    private List<Object> citations;
     private List<String> evidence;
     private String routeProfile;
     private String routeReason;

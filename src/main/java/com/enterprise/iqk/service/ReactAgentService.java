@@ -667,14 +667,13 @@ public class ReactAgentService {
                                         String answer,
                                         List<ReactTraceStepVO> trace,
                                         ModelRouter.ModelRouteDecision routeDecision) {
-        List<String> citations = extractTraceStrings(trace, "citations");
+        List<Object> citations = extractTraceItems(trace, "citations");
         List<String> evidence = extractTraceStrings(trace, "evidence");
-        String finalAnswer = attachCitationFooter(answer, citations);
         return ReactChatResponseVO.builder()
                 .ok(1)
                 .msg("ok")
                 .chatId(chatId)
-                .answer(finalAnswer)
+                .answer(stripRawCitationFooter(answer))
                 .citations(citations)
                 .evidence(evidence)
                 .routeProfile(routeDecision == null ? "" : routeDecision.profile())
@@ -735,6 +734,40 @@ public class ReactAgentService {
             }
         }
         return List.copyOf(values);
+    }
+
+    private List<Object> extractTraceItems(List<ReactTraceStepVO> trace, String key) {
+        if (trace == null || trace.isEmpty()) {
+            return List.of();
+        }
+        List<Object> values = new ArrayList<>();
+        Set<String> fingerprints = new LinkedHashSet<>();
+        for (ReactTraceStepVO step : trace) {
+            if (step == null || !(step.getObservation() instanceof Map<?, ?> observation)) {
+                continue;
+            }
+            Object raw = observation.get(key);
+            if (raw instanceof List<?> list) {
+                for (Object item : list) {
+                    if (item == null) {
+                        continue;
+                    }
+                    String fingerprint = String.valueOf(item);
+                    if (StringUtils.hasText(fingerprint) && fingerprints.add(fingerprint)) {
+                        values.add(item);
+                    }
+                }
+            }
+        }
+        return List.copyOf(values);
+    }
+
+    private String stripRawCitationFooter(String answer) {
+        return emptyIfBlank(answer)
+                .replaceAll("(?im)^\\s*\\[?\\d*\\]?\\s*source\\s*=.*(?:chunk|chunk_index)\\s*=.*$", "")
+                .replaceAll("(?i)source\\s*=\\s*[^,，\\n]+[,，]\\s*(?:chunk|chunk_index)\\s*=\\s*[^\\s，,。；;]+", "")
+                .replaceAll("(?is)\\n{2,}(?:---\\s*)?(引用来源|参考来源)[:：].*$", "")
+                .trim();
     }
 
     private String attachCitationFooter(String answer, List<String> citations) {

@@ -20,8 +20,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
 import java.util.Arrays;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -83,17 +85,15 @@ public class RagAnswerService {
             long outputTokens = tenantCostService.estimateTokens(answer);
             tenantCostService.recordUsage(normalizedTenantId, decision.costTier(), inputTokens, outputTokens, "rag");
 
-            List<String> citations = selected.stream()
-                    .map(this::citationText)
-                    .toList();
+            List<CitationReference> references = buildReferences(selected);
             List<String> evidence = selected.stream()
                     .map(this::evidenceText)
                     .toList();
 
             pipelineOutcome = "success";
             return RagResult.builder()
-                    .answer(answer)
-                    .citations(citations)
+                    .answer(sanitizeAnswer(answer))
+                    .citations(references)
                     .evidence(evidence)
                     .build();
         } finally {
@@ -155,7 +155,7 @@ public class RagAnswerService {
     }
 
     private double scoreDoc(Set<String> promptTokens, Document doc) {
-        Set<String> docTokens = tokenize(doc.getFormattedContent());
+        Set<String> docTokens = tokenize(documentText(doc));
         if (docTokens.isEmpty()) {
             return 0.0;
         }
@@ -177,26 +177,131 @@ public class RagAnswerService {
         for (int i = 0; i < docs.size(); i++) {
             Document d = docs.get(i);
             sb.append("[").append(i + 1).append("] ")
-                    .append(citationText(d))
+                    .append(contextCitationText(d))
                     .append("\n")
-                    .append(d.getFormattedContent())
+                    .append(documentText(d))
                     .append("\n\n");
         }
         return sb.toString();
     }
 
-    private String citationText(Document d) {
-        Object file = d.getMetadata().getOrDefault("file_name", "unknown");
-        Object chunk = d.getMetadata().getOrDefault("chunk_index", "?");
-        return "source=" + file + ", chunk=" + chunk;
+    private String contextCitationText(Document d) {
+        String fileName = metadataString(d, "file_name", "未知文件");
+        Integer pageNumber = pageNumber(d);
+        StringBuilder builder = new StringBuilder("文件: ").append(fileName);
+        if (pageNumber != null && pageNumber > 0) {
+            builder.append("，页码: 第 ").append(pageNumber).append(" 页");
+        }
+        return builder.toString();
+    }
+
+    private List<CitationReference> buildReferences(List<Document> docs) {
+        if (docs == null || docs.isEmpty()) {
+            return List.of();
+        }
+        return java.util.stream.IntStream.range(0, docs.size())
+                .mapToObj(index -> toReference(docs.get(index), index + 1))
+                .toList();
+    }
+
+    private CitationReference toReference(Document doc, int index) {
+        Map<String, Object> metadata = doc.getMetadata();
+        String fileName = metadataString(doc, "file_name", "未知文件");
+        Integer pageNumber = pageNumber(doc);
+        String snippet = truncate(evidenceText(doc), 80);
+        Map<String, Object> debug = new LinkedHashMap<>();
+        putDebug(debug, "tenant_id", metadata.get("tenant_id"));
+        putDebug(debug, "chat_id", metadata.get("chat_id"));
+        putDebug(debug, "job_id", metadata.get("job_id"));
+        putDebug(debug, "source_type", metadata.get("source_type"));
+        putDebug(debug, "chunk_index", metadata.get("chunk_index"));
+        putDebug(debug, "distance", metadata.get("distance"));
+        return CitationReference.builder()
+                .index(index)
+                .fileName(fileName)
+                .pageNumber(pageNumber)
+                .snippet(snippet)
+                .debug(debug)
+                .build();
+    }
+
+    private void putDebug(Map<String, Object> debug, String key, Object value) {
+        if (value != null) {
+            debug.put(key, value);
+        }
+    }
+
+    private String metadataString(Document doc, String key, String fallback) {
+        Object value = doc.getMetadata().get(key);
+        String text = value == null ? "" : String.valueOf(value).trim();
+        return StringUtils.hasText(text) ? text : fallback;
+    }
+
+    private Integer pageNumber(Document doc) {
+        for (String key : List.of("page_number", "pageNumber", "page", "page_index")) {
+            Object value = doc.getMetadata().get(key);
+            Integer parsed = parseInteger(value);
+            if (parsed != null && "page_index".equals(key) && parsed >= 0) {
+                return parsed + 1;
+            }
+            if (parsed != null && parsed > 0) {
+                return parsed;
+            }
+        }
+        return null;
+    }
+
+    private Integer parseInteger(Object value) {
+        if (value == null) {
+            return null;
+        }
+        try {
+            String digits = String.valueOf(value).replaceAll("[^0-9]", "");
+            if (!StringUtils.hasText(digits)) {
+                return null;
+            }
+            return Integer.parseInt(digits);
+        } catch (RuntimeException ignored) {
+            return null;
+        }
     }
 
     private String evidenceText(Document d) {
-        String raw = emptyIfBlank(d.getFormattedContent()).replaceAll("\\s+", " ").trim();
+        String raw = documentText(d);
         if (raw.length() <= 180) {
             return raw;
         }
         return raw.substring(0, 180) + "...";
+    }
+
+    private String documentText(Document d) {
+        String raw = emptyIfBlank(d.getFormattedContent()).replaceAll("\\s+", " ").trim();
+        return cleanMetadataText(raw);
+    }
+
+    private String cleanMetadataText(String value) {
+        return emptyIfBlank(value)
+                .replaceAll("(?i)\\b(?:tenant_id|chat_id|job_id|source|source_type|file_name|filename|fileName|chunk_index|page_number|pageNumber|page_index|distance)\\s*[:=]\\s*[^\\s,，;；]+", " ")
+                .replaceAll("(?i)\\b(?:source|chunk|chunk_index)\\s*=\\s*[^\\s,，;；]+", " ")
+                .replaceAll("\\s+", " ")
+                .trim();
+    }
+
+    private String truncate(String value, int maxChars) {
+        String raw = emptyIfBlank(value).replaceAll("\\s+", " ").trim();
+        if (raw.length() <= maxChars) {
+            return raw;
+        }
+        return raw.substring(0, maxChars) + "...";
+    }
+
+    private String sanitizeAnswer(String answer) {
+        String cleaned = emptyIfBlank(answer)
+                .replaceAll("(?im)^\\s*(?:tenant_id|chat_id|job_id|source|source_type|file_name|filename|fileName|chunk_index|page_number|pageNumber|page_index|distance)\\s*[:=].*$", "")
+                .replaceAll("(?im)^\\s*\\[?\\d*\\]?\\s*source\\s*=.*(?:chunk|chunk_index)\\s*=.*$", "")
+                .replaceAll("(?i)source\\s*=\\s*[^,，\\n]+[,，]\\s*(?:chunk|chunk_index)\\s*=\\s*[^\\s，,。；;]+", "")
+                .trim();
+        return cleaned.replaceAll("(?is)\\n{2,}(?:---\\s*)?(引用来源|参考来源)[:：].*$", "").trim();
     }
 
     private String emptyIfBlank(String value) {
@@ -209,9 +314,19 @@ public class RagAnswerService {
 
     @Data
     @Builder
+    public static class CitationReference {
+        private Integer index;
+        private String fileName;
+        private Integer pageNumber;
+        private String snippet;
+        private Map<String, Object> debug;
+    }
+
+    @Data
+    @Builder
     public static class RagResult {
         private String answer;
-        private List<String> citations;
+        private List<CitationReference> citations;
         private List<String> evidence;
     }
 }

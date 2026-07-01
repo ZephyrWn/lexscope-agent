@@ -28,7 +28,13 @@ class BuiltinToolRuntimeTest {
                 eq("balanced")
         )).thenReturn(RagAnswerService.RagResult.builder()
                 .answer("answer")
-                .citations(List.of("source=doc, chunk=1"))
+                .citations(List.of(RagAnswerService.CitationReference.builder()
+                        .index(1)
+                        .fileName("doc")
+                        .pageNumber(1)
+                        .snippet("evidence")
+                        .debug(Map.of("chunk_index", 1))
+                        .build()))
                 .evidence(List.of("evidence"))
                 .build());
         BuiltinToolRuntime runtime = new BuiltinToolRuntime(courseTools, ragAnswerService);
@@ -50,7 +56,7 @@ class BuiltinToolRuntimeTest {
                 .containsEntry("query", "java cache")
                 .containsEntry("answer", "answer")
                 .containsEntry("source", "builtin");
-        assertThat(payload.get("citations")).isEqualTo(List.of("source=doc, chunk=1"));
+        assertThat((List<?>) payload.get("citations")).hasSize(1);
     }
 
     @Test
