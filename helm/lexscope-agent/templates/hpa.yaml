@@ -2,14 +2,14 @@
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
-  name: {{ include "knowledgeops-agent.fullname" . }}
+  name: {{ include "lexscope-agent.fullname" . }}
   labels:
-    {{- include "knowledgeops-agent.labels" . | nindent 4 }}
+    {{- include "lexscope-agent.labels" . | nindent 4 }}
 spec:
   scaleTargetRef:
     apiVersion: apps/v1
     kind: Deployment
-    name: {{ include "knowledgeops-agent.fullname" . }}
+    name: {{ include "lexscope-agent.fullname" . }}
   minReplicas: {{ .Values.autoscaling.minReplicas }}
   maxReplicas: {{ .Values.autoscaling.maxReplicas }}
   metrics:

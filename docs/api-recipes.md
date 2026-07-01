@@ -27,7 +27,7 @@ curl -X POST "$BASE_URL/auth/token" \
 ## Chat
 
 ```bash
-curl "$BASE_URL/ai/chat?prompt=Summarize%20KnowledgeOps%20Agent&chatId=demo-chat" \
+curl "$BASE_URL/ai/chat?prompt=Summarize%20LexScope%20Agent&chatId=demo-chat" \
   -H "X-API-Key: $API_KEY" \
   -H "X-Tenant-Id: $TENANT_ID"
 ```

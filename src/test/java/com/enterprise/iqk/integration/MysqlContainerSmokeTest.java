@@ -17,7 +17,7 @@ class MysqlContainerSmokeTest {
 
     @Container
     static MySQLContainer<?> mysql = new MySQLContainer<>("mysql:8.4")
-            .withDatabaseName("knowledgeops_agent")
+            .withDatabaseName("lexscope_agent")
             .withUsername("root")
             .withPassword("root");
 

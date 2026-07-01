@@ -1,5 +1,5 @@
 apiVersion: v2
-name: knowledgeops-agent
+name: lexscope-agent
 description: LexScope Agent Java service
 type: application
 version: 0.1.0
@@ -8,6 +8,6 @@ keywords:
   - ai
   - rag
   - spring-boot
-  - knowledgeops
+  - lexscope
 maintainers:
-  - name: KnowledgeOps
+  - name: LexScope

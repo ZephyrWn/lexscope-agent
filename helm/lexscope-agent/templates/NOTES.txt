@@ -1,0 +1,10 @@
+LexScope Agent has been installed.
+
+Service:
+  {{ include "lexscope-agent.fullname" . }}:{{ .Values.service.port }}
+
+Health:
+  /actuator/health
+
+Metrics:
+  /actuator/prometheus

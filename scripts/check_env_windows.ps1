@@ -103,7 +103,7 @@ function Write-Check {
 }
 
 Set-Location $RepoRoot
-Write-Host "KnowledgeOps Agent Windows environment check"
+Write-Host "LexScope Agent Windows environment check"
 Write-Host "Project root: $RepoRoot"
 
 Write-Section "Toolchain"

@@ -1,4 +1,4 @@
-KnowledgeOps Demo Policy: Heat Safety Operations
+LexScope Demo Policy: Heat Safety Operations
 
 Document owner: Operations Risk Office
 Version: 2026.04
@@ -30,7 +30,7 @@ If a worker shows dizziness, confusion, fainting, abnormal sweating, or suspecte
 heat stroke symptoms, the supervisor must stop the task, move the worker to a
 cool area, start first aid, and escalate according to the operations runbook.
 
-5. KnowledgeOps RAG Validation Notes
+5. LexScope RAG Validation Notes
 
 A compliant RAG answer must cite the source document and the matched chunk. If
 the question cannot be answered from the indexed policy content, the assistant

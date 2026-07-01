@@ -33,7 +33,7 @@ Strongly recommended:
 ## 3. Release Sequence
 
 1. Build image:
-   - `docker build -t knowledgeops-agent:<tag> .`
+   - `docker build -t lexscope-agent:<tag> .`
 2. Apply DB migration (Flyway at startup or pipeline stage).
 3. Deploy canary instance.
 4. Verify:

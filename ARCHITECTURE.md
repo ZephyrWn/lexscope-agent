@@ -1,5 +1,9 @@
 # LexScope Agent 架构说明
 
+## 2026-07-02 项目命名统一
+
+项目对外展示名统一为 `LexScope Agent`。文档标题、页面标题、启动脚本提示、模型系统提示词和可观测性看板标题都使用空格版名称，方便作品展示和面试表达保持一致。运行时技术标识仍使用小写连字符形式 `lexscope-agent`，包括 Maven artifact、Docker image、Helm chart、Kubernetes label、日志路径、npm package name、localStorage key 和 GitHub 仓库 URL，避免破坏各类工具链对标识符格式的要求。
+
 ## 2026-07-01 上传链路补充
 
 为了让普通用户打开 8088 后可以直接上传 PDF，前端 Nginx 为 `/api/ai/pdf/upload/` 增加了独立代理入口。这个入口会清空浏览器可能残留的旧 Authorization，并统一补充本地演示上传密钥和 `public` 使用范围，然后再转发到后端已有上传接口。这样没有修改后端接口、数据库结构或入库逻辑，只是在部署层把“默认可上传”的演示体验兜住。

@@ -1,8 +1,8 @@
 {
   "dashboard": {
-    "title": "KnowledgeOps Agent - Enterprise Dashboard",
-    "uid": "knowledgeops-agent-main",
-    "tags": ["knowledgeops", "enterprise"],
+    "title": "LexScope Agent - Enterprise Dashboard",
+    "uid": "lexscope-agent-main",
+    "tags": ["lexscope", "enterprise"],
     "timezone": "browser",
     "refresh": "30s",
     "panels": [

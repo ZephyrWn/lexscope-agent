@@ -48,7 +48,7 @@ Terminal failures enter DLQ stream/queue.
 
 ## 5. Log Shipping
 
-- Application log file: `logs/knowledgeops-agent.log`
+- Application log file: `logs/lexscope-agent.log`
 - Promtail scrapes `logs/*.log` and pushes to Loki
 - Trace and request correlation fields: `trace_id`, `request_id`, `chat_id`
 

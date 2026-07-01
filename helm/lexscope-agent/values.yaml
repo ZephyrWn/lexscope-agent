@@ -38,7 +38,7 @@ ingress:
   className: ""
   annotations: {}
   hosts:
-    - host: knowledgeops.example.com
+    - host: lexscope.example.com
       paths:
         - path: /
           pathType: Prefix

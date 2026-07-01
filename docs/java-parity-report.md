@@ -28,7 +28,7 @@ tests for the shared three-language contract.
 | Rate limiting | Done | Bucket4j filter |
 | Health and metrics | Done | `/actuator/health`, `/actuator/prometheus` |
 | Docker local deployment | Done | `Dockerfile`, `docker-compose.yml` |
-| Helm deployment | Done | `helm/knowledgeops-agent` |
+| Helm deployment | Done | `helm/lexscope-agent` |
 | API contract tests | Done | `JavaApiContractTest` |
 | E2E smoke | Done | `scripts/e2e_chat_flow.py` |
 | Performance smoke | Done | `performance/k6/chat_ingestion_load.js` |
@@ -86,6 +86,6 @@ mvn -q -DskipTests package
 Optional deployment checks:
 
 ```bash
-helm lint helm/knowledgeops-agent
+helm lint helm/lexscope-agent
 docker compose config
 ```

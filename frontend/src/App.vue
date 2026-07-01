@@ -858,7 +858,7 @@ interface EvalMetricCard {
 }
 
 const STORAGE_KEY = 'lexscope-agent-react-console-v1';
-const LEGACY_STORAGE_KEY = 'knowledgeops-agent-react-console';
+const LEGACY_STORAGE_KEY = 'lexscope-agent-react-console';
 const DEFAULT_SYSTEM_MESSAGE = '请上传法律资料，或直接输入你想分析的问题。';
 const DEFAULT_WORKSPACE = 'default';
 const DEFAULT_SERVICE_KEY = 'dev-admin-key-2026';

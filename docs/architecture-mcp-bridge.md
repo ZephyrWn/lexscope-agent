@@ -16,7 +16,7 @@ Model Context Protocol (MCP) 是 Anthropic 定义的开放协议，标准化了 
 
 ```mermaid
 flowchart LR
-    subgraph KnowledgeOps
+    subgraph LexScope
         AWE[AgentWorkflowEngine]
         TL[ToolCallingLayer]
         RL[ReAct Loop]
